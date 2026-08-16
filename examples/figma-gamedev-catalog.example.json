@@ -1,0 +1,46 @@
+{
+  "schema": "figma-gamedev-ui-catalog",
+  "version": "0.1.0-example",
+  "features": [
+    {
+      "id": "lootbox-shop",
+      "displayName": "Lootbox Shop",
+      "unityNamespace": "Example.Game.Features.UI.LootboxShop"
+    }
+  ],
+  "screenTemplates": [
+    {
+      "id": "unity.screen.lobby",
+      "displayName": "Lobby Screen"
+    },
+    {
+      "id": "unity.screen.popup",
+      "displayName": "Modal Popup"
+    }
+  ],
+  "prefabs": [
+    {
+      "id": "unity.ui.product-card",
+      "displayName": "Product Card",
+      "variants": ["Default", "Compact", "Featured"],
+      "slots": ["BadgeSlot", "ActionSlot"]
+    },
+    {
+      "id": "unity.ui.button.primary",
+      "displayName": "Primary Button"
+    }
+  ],
+  "safeAreaProfiles": [
+    {
+      "id": "unity.safe-area.default",
+      "displayName": "Default Mobile Safe Area"
+    }
+  ],
+  "animationProfiles": [
+    {
+      "id": "unity.animation.staggered-appear",
+      "displayName": "Staggered Item Appear",
+      "targetType": "RectTransform[]"
+    }
+  ]
+}

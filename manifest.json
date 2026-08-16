@@ -1,0 +1,16 @@
+{
+  "name": "FigmaGamedev",
+  "id": "figma-gamedev-bridge-development",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "http://localhost:19783/",
+      "http://127.0.0.1:19783/"
+    ],
+    "reasoning": "Send an explicitly selected and validated UI package to the local project-specific Unity Editor bridge."
+  }
+}

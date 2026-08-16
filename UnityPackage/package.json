@@ -1,0 +1,10 @@
+{
+  "name": "com.hyperhug.figma-gamedev-bridge",
+  "version": "0.1.0",
+  "displayName": "FigmaGamedev",
+  "description": "Receives semantic UI packages from the FigmaGamedev Figma development plugin.",
+  "unity": "2021.3",
+  "author": {
+    "name": "HyperHug"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "HyperHug.FigmaGamedev.Editor",
+  "rootNamespace": "HyperHug.FigmaGamedev.Editor",
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

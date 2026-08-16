@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FigmaGamedev</title>
+  <style>
+    :root { color-scheme: light dark; font: 12px/1.4 Inter, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--figma-color-bg); color: var(--figma-color-text); }
+    header { position: sticky; top: 0; z-index: 2; padding: 12px 14px; background: var(--figma-color-bg); border-bottom: 1px solid var(--figma-color-border); }
+    header h1 { margin: 0; font-size: 15px; }
+    header p { margin: 3px 0 0; color: var(--figma-color-text-secondary); }
+    main { padding: 12px 14px 24px; }
+    section { padding: 12px 0; border-bottom: 1px solid var(--figma-color-border); }
+    h2 { margin: 0 0 9px; font-size: 12px; }
+    label { display: block; margin: 8px 0 4px; color: var(--figma-color-text-secondary); }
+    input, select { width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--figma-color-border); border-radius: 5px; background: var(--figma-color-bg); color: var(--figma-color-text); }
+    input:focus, select:focus { outline: 2px solid var(--figma-color-border-selected); outline-offset: -1px; }
+    button { min-height: 32px; padding: 6px 10px; border: 1px solid var(--figma-color-border); border-radius: 5px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text); cursor: pointer; }
+    button.primary { border-color: var(--figma-color-bg-brand); background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); }
+    button.danger { color: var(--figma-color-text-danger); }
+    button:disabled { opacity: .45; cursor: default; }
+    .row { display: flex; gap: 7px; }
+    .row > * { flex: 1; }
+    .selection { padding: 9px; border-radius: 6px; background: var(--figma-color-bg-secondary); }
+    .selection strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .muted { color: var(--figma-color-text-secondary); }
+    .checkbox { display: flex; align-items: center; gap: 7px; margin: 6px 0; color: var(--figma-color-text); }
+    .checkbox input { width: 14px; height: 14px; margin: 0; }
+    .hidden { display: none !important; }
+    .notice { margin-top: 8px; padding: 8px; border-radius: 5px; white-space: pre-wrap; }
+    .notice.ok { background: var(--figma-color-bg-success-tertiary); color: var(--figma-color-text-success); }
+    .notice.warn { background: var(--figma-color-bg-warning-tertiary); color: var(--figma-color-text-warning); }
+    .notice.error { background: var(--figma-color-bg-danger-tertiary); color: var(--figma-color-text-danger); }
+    .scan-item { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--figma-color-border); }
+    .scan-item button { min-height: 25px; padding: 2px 7px; flex: none; }
+    .tag { display: inline-block; padding: 1px 5px; border-radius: 4px; background: var(--figma-color-bg-brand-tertiary); color: var(--figma-color-text-brand); }
+    #catalogFile { padding: 5px; height: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>FigmaGamedev</h1>
+    <p>Семантическая разметка Figma → Unity</p>
+  </header>
+  <main>
+    <section>
+      <h2>Выбранный объект</h2>
+      <div id="selection" class="selection muted">Получение выделения…</div>
+    </section>
+
+    <section id="editor" class="hidden">
+      <h2>Unity-разметка</h2>
+      <label for="kind">Тип сущности</label>
+      <select id="kind">
+        <option value="">Не размечен</option>
+        <option value="feature">Feature</option>
+        <option value="screen">Screen</option>
+        <option value="component">Component</option>
+        <option value="layer">Layer / Behavior</option>
+      </select>
+
+      <div id="identityFields">
+        <label for="entityId">Стабильный ID</label>
+        <input id="entityId" placeholder="lootbox-shop.main">
+      </div>
+
+      <div id="featureField">
+        <label for="featureId">Feature ID</label>
+        <input id="featureId" list="featureOptions" placeholder="lootbox-shop">
+      </div>
+
+      <div id="unityField">
+        <label for="unityName">Unity Name</label>
+        <input id="unityName" placeholder="LootboxShopScreen">
+      </div>
+
+      <div id="screenFields" class="hidden">
+        <label for="templateId">Screen Template</label>
+        <input id="templateId" list="templateOptions" placeholder="unity.screen.lobby">
+        <label for="rootKind">Window Root Kind</label>
+        <select id="rootKind">
+          <option value="default">Default</option>
+          <option value="lobby">Lobby</option>
+          <option value="game">Game</option>
+          <option value="overlay">Overlay</option>
+          <option value="popup">Popup</option>
+        </select>
+      </div>
+
+      <div id="componentFields" class="hidden">
+        <label for="generationMode">Режим генерации</label>
+        <select id="generationMode">
+          <option value="reuse-prefab">Переиспользовать prefab</option>
+          <option value="prefab-variant">Создать Prefab Variant</option>
+          <option value="new-prefab">Создать новый prefab</option>
+          <option value="visual-only">Только визуальный элемент</option>
+        </select>
+        <label for="basePrefabId">Prefab / Base Prefab ID</label>
+        <input id="basePrefabId" list="prefabOptions" placeholder="unity.ui.product-card">
+        <label for="variantName">Название варианта</label>
+        <input id="variantName" placeholder="ProductCardLimited">
+        <label for="missingChildren">Отсутствующие базовые элементы</label>
+        <select id="missingChildren">
+          <option value="deactivate">Отключать (рекомендуется)</option>
+          <option value="keep">Оставлять</option>
+          <option value="remove">Удалять, если разрешено каталогом</option>
+        </select>
+        <label for="newChildren">Новые элементы</label>
+        <select id="newChildren">
+          <option value="slots-only">Только в зарегистрированных Slots</option>
+          <option value="allow">Разрешить с предупреждением</option>
+          <option value="reject">Запретить</option>
+        </select>
+      </div>
+
+      <div id="roleFields" class="hidden">
+        <label>Роли выбранного слоя</label>
+        <label class="checkbox"><input type="checkbox" name="role" value="screen-root"> Screen Root</label>
+        <label class="checkbox"><input type="checkbox" name="role" value="safe-area"> Safe Area</label>
+        <label class="checkbox"><input type="checkbox" name="role" value="animation-group"> Animation Group</label>
+        <label class="checkbox"><input type="checkbox" name="role" value="content-slot"> Content Slot</label>
+        <label class="checkbox"><input type="checkbox" name="role" value="repeated-list"> Repeated List</label>
+        <label class="checkbox"><input type="checkbox" name="role" value="preserve-wrapper"> Не упрощать этот wrapper</label>
+        <label class="checkbox"><input type="checkbox" name="role" value="ignore"> Игнорировать при импорте</label>
+
+        <div id="safeAreaFields" class="hidden">
+          <label for="safeAreaProfileId">Safe Area Profile</label>
+          <input id="safeAreaProfileId" list="safeAreaOptions" placeholder="unity.safe-area.default">
+          <div class="row">
+            <label class="checkbox"><input id="safeHorizontal" type="checkbox" checked> Horizontal</label>
+            <label class="checkbox"><input id="safeVertical" type="checkbox" checked> Vertical</label>
+          </div>
+        </div>
+
+        <div id="animationFields" class="hidden">
+          <label for="animationProfileId">Animation Profile</label>
+          <input id="animationProfileId" list="animationOptions" placeholder="unity.animation.staggered-appear">
+          <label for="animationTargetMode">Какие элементы анимировать</label>
+          <select id="animationTargetMode">
+            <option value="direct-children">Непосредственные дети</option>
+            <option value="all-descendants">Все вложенные элементы</option>
+            <option value="binding">Элементы с указанным binding</option>
+            <option value="runtime-items">Динамически добавляемые элементы</option>
+          </select>
+          <label for="animationTargetBindingId">Target Binding ID</label>
+          <input id="animationTargetBindingId" list="prefabOptions" placeholder="unity.ui.product-card">
+          <div class="row">
+            <div><label for="animationDelay">Delay</label><input id="animationDelay" type="number" min="0" step="0.01" value="0.08"></div>
+            <div><label for="animationOrder">Порядок</label><select id="animationOrder"><option value="hierarchy">Hierarchy</option><option value="reverse">Reverse</option><option value="manual">Manual</option></select></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 12px">
+        <button id="save" class="primary">Сохранить разметку</button>
+        <button id="validate">Проверить</button>
+      </div>
+      <button id="remove" class="danger" style="width:100%; margin-top:7px">Удалить разметку</button>
+      <div id="validation"></div>
+    </section>
+
+    <section>
+      <h2>Unity Catalog</h2>
+      <input id="catalogFile" type="file" accept="application/json,.json">
+      <div id="catalogStatus" class="muted" style="margin-top:7px">Каталог не загружен.</div>
+      <datalist id="featureOptions"></datalist>
+      <datalist id="templateOptions"></datalist>
+      <datalist id="prefabOptions"></datalist>
+      <datalist id="safeAreaOptions"></datalist>
+      <datalist id="animationOptions"></datalist>
+    </section>
+
+    <section>
+      <h2>Публикация</h2>
+      <div id="bridgeStatus" class="selection muted" style="margin-bottom:8px">Unity Bridge: проверка…</div>
+      <div class="row">
+        <button id="scan">Сканировать страницу</button>
+        <button id="export">Скачать JSON</button>
+      </div>
+      <button id="publish" class="primary" style="width:100%; margin-top:7px">Отправить выбранный экран в Unity</button>
+      <div id="scanResult"></div>
+    </section>
+  </main>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    let selection = null;
+    let catalog = null;
+    let exportDelivery = "download";
+    const bridgeUrl = "http://localhost:19783";
+
+    function send(type, data = {}) {
+      parent.postMessage({ pluginMessage: { type, ...data } }, "*");
+    }
+
+    function values(name) {
+      return [...document.querySelectorAll(`[name="${name}"]:checked`)].map(input => input.value);
+    }
+
+    function setChecks(name, selected) {
+      const set = new Set(selected || []);
+      document.querySelectorAll(`[name="${name}"]`).forEach(input => input.checked = set.has(input.value));
+    }
+
+    function formAnnotation() {
+      const roles = values("role");
+      return {
+        kind: $("kind").value,
+        id: $("entityId").value.trim(),
+        featureId: $("featureId").value.trim(),
+        unityName: $("unityName").value.trim(),
+        templateId: $("templateId").value.trim(),
+        rootKind: $("rootKind").value,
+        generationMode: $("generationMode").value,
+        basePrefabId: $("basePrefabId").value.trim(),
+        variantName: $("variantName").value.trim(),
+        missingChildren: $("missingChildren").value,
+        newChildren: $("newChildren").value,
+        roles,
+        safeAreaProfileId: $("safeAreaProfileId").value.trim(),
+        safeHorizontal: $("safeHorizontal").checked,
+        safeVertical: $("safeVertical").checked,
+        animationProfileId: $("animationProfileId").value.trim(),
+        animationTargetMode: $("animationTargetMode").value,
+        animationTargetBindingId: $("animationTargetBindingId").value.trim(),
+        animationDelay: Number($("animationDelay").value || 0),
+        animationOrder: $("animationOrder").value
+      };
+    }
+
+    function fillForm(annotation = {}) {
+      $("kind").value = annotation.kind || "";
+      $("entityId").value = annotation.id || "";
+      $("featureId").value = annotation.featureId || "";
+      $("unityName").value = annotation.unityName || "";
+      $("templateId").value = annotation.templateId || "";
+      $("rootKind").value = annotation.rootKind || "default";
+      $("generationMode").value = annotation.generationMode || "reuse-prefab";
+      $("basePrefabId").value = annotation.basePrefabId || "";
+      $("variantName").value = annotation.variantName || "";
+      $("missingChildren").value = annotation.missingChildren || "deactivate";
+      $("newChildren").value = annotation.newChildren || "slots-only";
+      setChecks("role", annotation.roles);
+      $("safeAreaProfileId").value = annotation.safeAreaProfileId || "unity.safe-area.default";
+      $("safeHorizontal").checked = annotation.safeHorizontal !== false;
+      $("safeVertical").checked = annotation.safeVertical !== false;
+      $("animationProfileId").value = annotation.animationProfileId || "";
+      $("animationTargetMode").value = annotation.animationTargetMode || "direct-children";
+      $("animationTargetBindingId").value = annotation.animationTargetBindingId || "";
+      $("animationDelay").value = annotation.animationDelay ?? 0.08;
+      $("animationOrder").value = annotation.animationOrder || "hierarchy";
+      updateVisibility();
+    }
+
+    function updateVisibility() {
+      const kind = $("kind").value;
+      $("identityFields").classList.toggle("hidden", !["feature", "screen", "component"].includes(kind));
+      $("featureField").classList.toggle("hidden", !["screen", "component"].includes(kind));
+      $("unityField").classList.toggle("hidden", !["screen", "component"].includes(kind));
+      $("screenFields").classList.toggle("hidden", kind !== "screen");
+      $("componentFields").classList.toggle("hidden", kind !== "component");
+      $("roleFields").classList.toggle("hidden", kind !== "layer");
+      const roles = new Set(values("role"));
+      $("safeAreaFields").classList.toggle("hidden", !roles.has("safe-area"));
+      $("animationFields").classList.toggle("hidden", !roles.has("animation-group"));
+    }
+
+    function renderValidation(result) {
+      const target = $("validation");
+      const messages = [];
+      if (result.errors?.length) messages.push(...result.errors.map(value => `✕ ${value}`));
+      if (result.warnings?.length) messages.push(...result.warnings.map(value => `⚠ ${value}`));
+      if (!messages.length) messages.push("✓ Разметка корректна");
+      target.className = `notice ${result.errors?.length ? "error" : result.warnings?.length ? "warn" : "ok"}`;
+      target.textContent = messages.join("\n");
+    }
+
+    function setOptions(id, entries) {
+      $(id).innerHTML = (entries || []).map(entry => {
+        const value = typeof entry === "string" ? entry : entry.id;
+        const label = typeof entry === "string" ? entry : (entry.displayName || entry.name || entry.id);
+        return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+      }).join("");
+    }
+
+    function applyCatalog(value) {
+      catalog = value;
+      if (!value) {
+        $("catalogStatus").textContent = "Каталог не загружен.";
+        return;
+      }
+      setOptions("featureOptions", value.features);
+      setOptions("templateOptions", value.screenTemplates);
+      setOptions("prefabOptions", value.prefabs || value.components);
+      setOptions("safeAreaOptions", value.safeAreaProfiles);
+      setOptions("animationOptions", value.animationProfiles);
+      const total = (value.prefabs || value.components || []).length;
+      $("catalogStatus").textContent = `Версия ${value.version || "—"}: ${total} prefab, ${(value.screenTemplates || []).length} templates.`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    }
+
+    function downloadJson(payload) {
+      const id = payload.entity?.id || payload.entity?.unityName || "figma-gamedev-export";
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${id.replace(/[^a-z0-9._-]+/gi, "-")}.figma-gamedev.json`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    async function checkBridge() {
+      const target = $("bridgeStatus");
+      try {
+        const response = await fetch(`${bridgeUrl}/health`, { method: "GET" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const info = await response.json();
+        target.className = "selection";
+        target.innerHTML = `<strong>Unity Bridge подключён</strong><span class="muted">${escapeHtml(info.project || "Unity")} · ${escapeHtml(info.version || "")}</span>`;
+        $("publish").disabled = false;
+      } catch (error) {
+        target.className = "selection muted";
+        target.innerHTML = "Unity Bridge не найден на localhost:19783";
+        $("publish").disabled = true;
+      }
+    }
+
+    async function publishToUnity(payload) {
+      try {
+        const response = await fetch(`${bridgeUrl}/publish`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        renderValidation({ warnings: [], errors: [] });
+        $("validation").textContent = `✓ Отправлено в Unity\n${result.file || ""}`;
+      } catch (error) {
+        renderValidation({ errors: [`Не удалось отправить в Unity: ${error.message}`] });
+        checkBridge();
+      }
+    }
+
+    $("kind").addEventListener("change", updateVisibility);
+    document.querySelectorAll('[name="role"]').forEach(input => input.addEventListener("change", updateVisibility));
+    $("save").onclick = () => send("save-annotation", { annotation: formAnnotation() });
+    $("validate").onclick = () => send("validate-selection", { annotation: formAnnotation() });
+    $("remove").onclick = () => send("remove-annotation");
+    $("scan").onclick = () => send("scan-page");
+    $("export").onclick = () => { exportDelivery = "download"; send("export-selection"); };
+    $("publish").onclick = () => { exportDelivery = "bridge"; send("export-selection"); };
+    $("catalogFile").onchange = async event => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        send("save-catalog", { catalog: JSON.parse(await file.text()) });
+      } catch (error) {
+        renderValidation({ errors: [`Неверный JSON каталога: ${error.message}`] });
+      }
+    };
+
+    window.onmessage = event => {
+      const message = event.data.pluginMessage;
+      if (!message) return;
+      if (message.type === "selection") {
+        selection = message.payload;
+        if (!selection.ok) {
+          $("selection").textContent = selection.message;
+          $("selection").classList.add("muted");
+          $("editor").classList.add("hidden");
+        } else {
+          $("selection").innerHTML = `<strong>${escapeHtml(selection.node.name)}</strong><span class="muted">${escapeHtml(selection.node.type)} · ${Math.round(selection.node.width || 0)}×${Math.round(selection.node.height || 0)} · ${escapeHtml(selection.node.id)}</span>`;
+          $("selection").classList.remove("muted");
+          $("editor").classList.remove("hidden");
+          fillForm(selection.annotation || {});
+          $("validation").className = "";
+          $("validation").textContent = "";
+        }
+      }
+      if (message.type === "catalog") applyCatalog(message.payload);
+      if (message.type === "validation") renderValidation(message.payload);
+      if (message.type === "export-ready") {
+        if (exportDelivery === "bridge") publishToUnity(message.payload);
+        else downloadJson(message.payload);
+        exportDelivery = "download";
+      }
+      if (message.type === "error") renderValidation({ errors: [message.payload] });
+      if (message.type === "scan-result") {
+        const entries = message.payload || [];
+        $("scanResult").innerHTML = entries.length
+          ? entries.map(entry => `<div class="scan-item"><div><span class="tag">${escapeHtml(entry.annotation?.kind || "unknown")}</span> ${escapeHtml(entry.nodeName)}<div class="muted">${escapeHtml(entry.annotation?.id || entry.annotation?.roles?.join(", ") || entry.nodeId)}</div></div><button data-node="${escapeHtml(entry.nodeId)}">Найти</button></div>`).join("")
+          : '<div class="muted" style="margin-top:8px">На текущей странице нет разметки.</div>';
+        $("scanResult").querySelectorAll("button[data-node]").forEach(button => button.onclick = () => send("select-node", { nodeId: button.dataset.node }));
+      }
+    };
+
+    send("ready");
+    checkBridge();
+    setInterval(checkBridge, 10000);
+  </script>
+</body>
+</html>
