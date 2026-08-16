@@ -9,6 +9,7 @@
 - выполняет validation;
 - сериализует выбранное дерево;
 - взаимодействует с UI через `figma.ui.postMessage`.
+- регистрирует `figma.codegen.on("generate")` для Dev Mode.
 
 `ui.html` работает в iframe. Он:
 
@@ -22,6 +23,15 @@
 MVP специально состоит из `code.js` и одного `ui.html`, чтобы дизайнеры могли
 быстро тестировать изменения. После стабилизации интерфейса рекомендуется перейти
 на TypeScript, schema validation и reproducible build.
+
+## Тесты Inspector analyzer
+
+```bash
+npm test
+```
+
+Тесты проверяют fixed/stretch/scale anchors, преобразование Y-axis, Auto Layout
+hints, warnings и Linear RGB conversion.
 
 ## Проверка синтаксиса
 

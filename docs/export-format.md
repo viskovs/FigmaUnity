@@ -11,7 +11,8 @@
   "entity": {},
   "catalogVersion": "1.0.0",
   "annotations": [],
-  "document": {}
+  "document": {},
+  "unityInspector": {}
 }
 ```
 
@@ -54,6 +55,10 @@
 - children.
 
 Это сырой источник для normalizer. Он не является готовой Unity-иерархией.
+
+Каждый сериализованный узел содержит `unityInspector` с предлагаемыми Unity-
+компонентами и warnings. Корневое поле `unityInspector` дополнительно содержит
+resolved values привязанных Figma Variables.
 
 ## Имена файлов
 

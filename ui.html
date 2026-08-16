@@ -36,6 +36,9 @@
     .scan-item { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--figma-color-border); }
     .scan-item button { min-height: 25px; padding: 2px 7px; flex: none; }
     .tag { display: inline-block; padding: 1px 5px; border-radius: 4px; background: var(--figma-color-bg-brand-tertiary); color: var(--figma-color-text-brand); }
+    details { margin-top: 8px; }
+    summary { cursor: pointer; color: var(--figma-color-text-secondary); }
+    pre { margin: 7px 0 0; padding: 9px; overflow: auto; max-height: 310px; border-radius: 5px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
     #catalogFile { padding: 5px; height: auto; }
   </style>
 </head>
@@ -48,6 +51,10 @@
     <section>
       <h2>Выбранный объект</h2>
       <div id="selection" class="selection muted">Получение выделения…</div>
+      <details id="inspectorDetails" class="hidden">
+        <summary>Unity Inspector Preview</summary>
+        <pre id="inspectorPreview"></pre>
+      </details>
     </section>
 
     <section id="editor" class="hidden">
@@ -277,6 +284,32 @@
       target.textContent = messages.join("\n");
     }
 
+    function renderInspector(inspector) {
+      const details = $("inspectorDetails");
+      const preview = $("inspectorPreview");
+      if (!inspector) {
+        details.classList.add("hidden");
+        preview.textContent = "";
+        return;
+      }
+      details.classList.remove("hidden");
+      const lines = [];
+      for (const component of inspector.components || []) {
+        lines.push(`[${component.type}]`);
+        for (const [key, value] of Object.entries(component.fields || {})) {
+          const rendered = typeof value === "object" && value !== null
+            ? JSON.stringify(value) : String(value ?? "—");
+          lines.push(`  ${key}: ${rendered}`);
+        }
+        lines.push("");
+      }
+      if (inspector.warnings?.length) {
+        lines.push("[Warnings]");
+        lines.push(...inspector.warnings.map(value => `  ⚠ ${value}`));
+      }
+      preview.textContent = lines.join("\n").trim();
+    }
+
     function setOptions(id, entries) {
       $(id).innerHTML = (entries || []).map(entry => {
         const value = typeof entry === "string" ? entry : entry.id;
@@ -375,10 +408,12 @@
           $("selection").textContent = selection.message;
           $("selection").classList.add("muted");
           $("editor").classList.add("hidden");
+          renderInspector(null);
         } else {
           $("selection").innerHTML = `<strong>${escapeHtml(selection.node.name)}</strong><span class="muted">${escapeHtml(selection.node.type)} · ${Math.round(selection.node.width || 0)}×${Math.round(selection.node.height || 0)} · ${escapeHtml(selection.node.id)}</span>`;
           $("selection").classList.remove("muted");
           $("editor").classList.remove("hidden");
+          renderInspector(selection.unityInspector);
           fillForm(selection.annotation || {});
           $("validation").className = "";
           $("validation").textContent = "";

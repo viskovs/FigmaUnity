@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Unity Inspector Preview в основном интерфейсе;
+- Dev Mode codegen `Unity uGUI Inspector`;
+- RectTransform, Layout, Image/RawImage, TMP и CanvasGroup hints;
+- resolved Figma Variables, Figma Source и Warnings в AI export;
+- автоматические тесты layout analyzer.
+
 ### Planned
 
 - Unity Catalog exporter;

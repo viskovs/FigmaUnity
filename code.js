@@ -1,8 +1,505 @@
 const NAMESPACE = "figmagamedev";
 const ANNOTATION_KEY = "annotation";
 const SCHEMA_VERSION = 1;
+const INSPECTOR_SCHEMA_VERSION = 1;
 
-figma.showUI(__html__, { width: 420, height: 760, themeColors: true });
+figma.showUI(__html__, {
+  width: 420,
+  height: 760,
+  themeColors: true,
+  visible: figma.editorType !== "dev"
+});
+
+function round(value, digits = 3) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return value;
+  const factor = 10 ** digits;
+  const result = Math.round(value * factor) / factor;
+  return Object.is(result, -0) ? 0 : result;
+}
+
+function isMixed(value) {
+  return typeof figma !== "undefined" && "mixed" in figma && value === figma.mixed;
+}
+
+function valueOrNull(value) {
+  return value === undefined || isMixed(value) ? null : value;
+}
+
+function colorToHex(color, alpha = 1) {
+  if (!color) return null;
+  const channel = value => Math.max(0, Math.min(255, Math.round(value * 255)))
+    .toString(16).padStart(2, "0").toUpperCase();
+  const rgb = `#${channel(color.r)}${channel(color.g)}${channel(color.b)}`;
+  return alpha < 0.999 ? `${rgb}${channel(alpha)}` : rgb;
+}
+
+function srgbToLinear(value) {
+  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+}
+
+function unityColor(paint, nodeOpacity = 1) {
+  const color = paint?.color;
+  if (!color) return null;
+  const alpha = (paint.opacity ?? 1) * nodeOpacity;
+  return {
+    hex: colorToHex(color, alpha),
+    rgba: [round(color.r), round(color.g), round(color.b), round(alpha)],
+    linearRgba: [
+      round(srgbToLinear(color.r)),
+      round(srgbToLinear(color.g)),
+      round(srgbToLinear(color.b)),
+      round(alpha)
+    ]
+  };
+}
+
+function parentRect(node) {
+  const parent = node?.parent;
+  if (!parent || !("width" in parent) || !("height" in parent)) return null;
+  return { width: parent.width, height: parent.height };
+}
+
+function horizontalAnchor(constraint, x, width, parentWidth) {
+  switch (constraint) {
+    case "RIGHT": return [1, 1];
+    case "CENTER": return [0.5, 0.5];
+    case "LEFT_RIGHT": return [0, 1];
+    case "SCALE": return [x / parentWidth, (x + width) / parentWidth];
+    default: return [0, 0];
+  }
+}
+
+function verticalAnchor(constraint, y, height, parentHeight) {
+  switch (constraint) {
+    case "BOTTOM": return [0, 0];
+    case "CENTER": return [0.5, 0.5];
+    case "TOP_BOTTOM": return [0, 1];
+    case "SCALE": return [1 - (y + height) / parentHeight, 1 - y / parentHeight];
+    default: return [1, 1];
+  }
+}
+
+function rectTransformHints(node, warnings) {
+  const width = "width" in node ? node.width : 0;
+  const height = "height" in node ? node.height : 0;
+  const x = "x" in node ? node.x : 0;
+  const y = "y" in node ? node.y : 0;
+  const parent = parentRect(node);
+  const pivot = [0.5, 0.5];
+  const constraints = "constraints" in node ? node.constraints : { horizontal: "LEFT", vertical: "TOP" };
+
+  if (!parent || parent.width <= 0 || parent.height <= 0) {
+    warnings.push("Root RectTransform requires a Canvas/template policy; centered fallback is shown.");
+    return {
+      anchorMin: [0.5, 0.5],
+      anchorMax: [0.5, 0.5],
+      pivot,
+      anchoredPosition: [0, 0],
+      sizeDelta: [round(width), round(height)],
+      rotationZ: round(-("rotation" in node ? node.rotation : 0)),
+      sourceConstraints: constraints
+    };
+  }
+
+  const [minX, maxX] = horizontalAnchor(constraints.horizontal, x, width, parent.width);
+  const [minY, maxY] = verticalAnchor(constraints.vertical, y, height, parent.height);
+  const stretchX = Math.abs(maxX - minX) > 0.0001;
+  const stretchY = Math.abs(maxY - minY) > 0.0001;
+  const scaleX = constraints.horizontal === "SCALE";
+  const scaleY = constraints.vertical === "SCALE";
+  const pivotWorldX = x + width * pivot[0];
+  const pivotWorldY = parent.height - y - height * (1 - pivot[1]);
+  const anchorReferenceX = (minX + (maxX - minX) * pivot[0]) * parent.width;
+  const anchorReferenceY = (minY + (maxY - minY) * pivot[1]) * parent.height;
+
+  const result = {
+    anchorMin: [round(minX), round(minY)],
+    anchorMax: [round(maxX), round(maxY)],
+    pivot,
+    anchoredPosition: [
+      round(pivotWorldX - anchorReferenceX),
+      round(pivotWorldY - anchorReferenceY)
+    ],
+    sizeDelta: [round(width), round(height)],
+    rotationZ: round(-("rotation" in node ? node.rotation : 0)),
+    sourceConstraints: constraints
+  };
+
+  if (scaleX) {
+    result.anchoredPosition[0] = 0;
+    result.sizeDelta[0] = 0;
+  } else if (stretchX) {
+    result.offsetLeft = round(x);
+    result.offsetRight = round(parent.width - x - width);
+    result.sizeDelta[0] = round(-(result.offsetLeft + result.offsetRight));
+  }
+  if (scaleY) {
+    result.anchoredPosition[1] = 0;
+    result.sizeDelta[1] = 0;
+  } else if (stretchY) {
+    result.offsetTop = round(y);
+    result.offsetBottom = round(parent.height - y - height);
+    result.sizeDelta[1] = round(-(result.offsetTop + result.offsetBottom));
+  }
+  return result;
+}
+
+function layoutHints(node, components, warnings) {
+  const layoutMode = "layoutMode" in node ? node.layoutMode : "NONE";
+  const isHorizontal = layoutMode === "HORIZONTAL";
+  const isVertical = layoutMode === "VERTICAL";
+  const isGrid = layoutMode === "GRID";
+
+  if (isHorizontal || isVertical) {
+    components.push({
+      type: isHorizontal ? "HorizontalLayoutGroup" : "VerticalLayoutGroup",
+      fields: {
+        padding: {
+          left: round(node.paddingLeft ?? 0),
+          right: round(node.paddingRight ?? 0),
+          top: round(node.paddingTop ?? 0),
+          bottom: round(node.paddingBottom ?? 0)
+        },
+        spacing: round(node.itemSpacing ?? 0),
+        childAlignment: `${node.counterAxisAlignItems || "MIN"}-${node.primaryAxisAlignItems || "MIN"}`,
+        controlChildWidth: true,
+        controlChildHeight: true,
+        useChildScaleWidth: false,
+        useChildScaleHeight: false,
+        childForceExpandWidth: false,
+        childForceExpandHeight: false,
+        reverseArrangement: false,
+        sourceWrap: node.layoutWrap || "NO_WRAP"
+      }
+    });
+    if (node.layoutWrap === "WRAP") {
+      warnings.push("Figma Wrap has no exact Horizontal/VerticalLayoutGroup equivalent; use a project WrapLayout recipe.");
+    }
+  } else if (isGrid) {
+    components.push({
+      type: "GridLayoutGroup",
+      fields: {
+        padding: {
+          left: round(node.paddingLeft ?? 0), right: round(node.paddingRight ?? 0),
+          top: round(node.paddingTop ?? 0), bottom: round(node.paddingBottom ?? 0)
+        },
+        spacing: [round(node.itemSpacing ?? 0), round(node.counterAxisSpacing ?? 0)]
+      }
+    });
+    warnings.push("Figma Grid requires cell-size and constraint inference in Unity.");
+  }
+
+  if (isHorizontal || isVertical || isGrid) {
+    const horizontalFit = node.layoutSizingHorizontal === "HUG" ||
+      (isHorizontal && node.primaryAxisSizingMode === "AUTO") ||
+      ((isVertical || isGrid) && node.counterAxisSizingMode === "AUTO");
+    const verticalFit = node.layoutSizingVertical === "HUG" ||
+      (isVertical && node.primaryAxisSizingMode === "AUTO") ||
+      ((isHorizontal || isGrid) && node.counterAxisSizingMode === "AUTO");
+    if (horizontalFit || verticalFit) {
+      components.push({
+        type: "ContentSizeFitter",
+        fields: {
+          horizontalFit: horizontalFit ? "PreferredSize" : "Unconstrained",
+          verticalFit: verticalFit ? "PreferredSize" : "Unconstrained"
+        }
+      });
+    }
+  }
+
+  const sizingX = "layoutSizingHorizontal" in node ? node.layoutSizingHorizontal : null;
+  const sizingY = "layoutSizingVertical" in node ? node.layoutSizingVertical : null;
+  const parentLayoutMode = node.parent && "layoutMode" in node.parent ? node.parent.layoutMode : "NONE";
+  const parentControlsLayout = ["HORIZONTAL", "VERTICAL", "GRID"].includes(parentLayoutMode);
+  const hasMinMax = node.minWidth != null || node.maxWidth != null || node.minHeight != null || node.maxHeight != null;
+  if (parentControlsLayout || hasMinMax) {
+    const fields = {
+      flexibleWidth: sizingX === "FILL" ? 1 : 0,
+      flexibleHeight: sizingY === "FILL" ? 1 : 0,
+      preferredWidth: sizingX === "FIXED" ? round(node.width) : -1,
+      preferredHeight: sizingY === "FIXED" ? round(node.height) : -1,
+      minWidth: node.minWidth == null ? -1 : round(node.minWidth),
+      minHeight: node.minHeight == null ? -1 : round(node.minHeight),
+      sourceMaxWidth: node.maxWidth == null ? null : round(node.maxWidth),
+      sourceMaxHeight: node.maxHeight == null ? null : round(node.maxHeight)
+    };
+    components.push({ type: "LayoutElement", fields });
+    if (node.maxWidth != null || node.maxHeight != null) {
+      warnings.push("Unity LayoutElement has no max size; use a project MinMaxLayoutElement recipe.");
+    }
+  }
+}
+
+function visualHints(node, components, warnings) {
+  const opacity = "opacity" in node && typeof node.opacity === "number" ? node.opacity : 1;
+  const usesCanvasGroup = opacity < 0.999 && Array.isArray(node.children) && node.children.length > 0;
+  if (usesCanvasGroup) {
+    components.push({ type: "CanvasGroup", fields: { alpha: round(opacity), interactable: true, blocksRaycasts: true } });
+  }
+  const graphicOpacity = usesCanvasGroup ? 1 : opacity;
+
+  const fills = "fills" in node && Array.isArray(node.fills) ? node.fills.filter(fill => fill.visible !== false) : [];
+  const solidFills = fills.filter(fill => fill.type === "SOLID");
+  const imageFills = fills.filter(fill => fill.type === "IMAGE");
+  const complexFills = fills.filter(fill => !["SOLID", "IMAGE"].includes(fill.type));
+
+  if (node.type !== "TEXT" && solidFills.length === 1 && imageFills.length === 0) {
+    components.push({
+      type: "Image",
+      fields: {
+        color: unityColor(solidFills[0], graphicOpacity),
+        raycastTarget: false,
+        sprite: null,
+        type: "Simple"
+      }
+    });
+  }
+  if (node.type !== "TEXT" && imageFills.length > 0) {
+    const fill = imageFills[0];
+    components.push({
+      type: "RawImage",
+      fields: {
+        textureRef: fill.imageHash || null,
+        color: { hex: colorToHex({ r: 1, g: 1, b: 1 }, graphicOpacity) },
+        scaleMode: fill.scaleMode || "FILL",
+        rotation: round(fill.rotation || 0),
+        scalingFactor: round(fill.scalingFactor || 1),
+        filters: fill.filters || {},
+        sourceImageTransform: fill.imageTransform || fill.cropTransform || null,
+        uvRect: "Requires cropTransform conversion"
+      }
+    });
+    warnings.push("RawImage cropTransform/scaleMode requires an explicit uvRect conversion.");
+  }
+  if (fills.length > 1) warnings.push("Multiple visible fills require compositing, multiple Graphics, or rasterization.");
+  if (complexFills.length) warnings.push(`Unsupported/ambiguous fills: ${complexFills.map(fill => fill.type).join(", ")}.`);
+  if ("clipsContent" in node && node.clipsContent) {
+    components.push({ type: "RectMask2D", fields: { enabled: true } });
+  }
+
+  const effects = "effects" in node && Array.isArray(node.effects)
+    ? node.effects.filter(effect => effect.visible !== false) : [];
+  if (effects.length) warnings.push(`Figma effects require a project implementation: ${effects.map(effect => effect.type).join(", ")}.`);
+}
+
+function tmpAlignment(vertical, horizontal) {
+  const verticalName = vertical === "BOTTOM" ? "Bottom" : vertical === "CENTER" ? "" : "Top";
+  const horizontalName = horizontal === "RIGHT" ? "Right" :
+    horizontal === "CENTER" ? "" : horizontal === "JUSTIFIED" ? "Justified" : "Left";
+  return `${verticalName}${horizontalName}` || "Center";
+}
+
+function textSegmentSnapshot(segment) {
+  const fontName = valueOrNull(segment.fontName);
+  const fontSize = valueOrNull(segment.fontSize);
+  const fills = valueOrNull(segment.fills);
+  return {
+    start: segment.start,
+    end: segment.end,
+    text: segment.characters,
+    fontFamily: fontName?.family || null,
+    fontStyle: fontName?.style || null,
+    fontSize: typeof fontSize === "number" ? round(fontSize) : null,
+    fills: Array.isArray(fills) ? fills : null,
+    textDecoration: valueOrNull(segment.textDecoration),
+    letterSpacing: valueOrNull(segment.letterSpacing),
+    lineHeight: valueOrNull(segment.lineHeight)
+  };
+}
+
+function styledTextHints(node, warnings) {
+  if (typeof node.getStyledTextSegments !== "function") return null;
+  let sourceSegments;
+  try {
+    sourceSegments = node.getStyledTextSegments([
+      "fontName", "fontSize", "fills", "textDecoration", "letterSpacing", "lineHeight"
+    ]);
+  } catch (error) {
+    warnings.push(`Could not read mixed text segments: ${String(error?.message || error)}.`);
+    return null;
+  }
+  if (!Array.isArray(sourceSegments) || sourceSegments.length <= 1) return null;
+
+  const segments = sourceSegments.map(textSegmentSnapshot);
+  const families = new Set(segments.map(segment => segment.fontFamily).filter(Boolean));
+  const hasUnsupportedFill = segments.some(segment =>
+    !Array.isArray(segment.fills) || segment.fills.length !== 1 || segment.fills[0].type !== "SOLID");
+  const hasTagCharacters = segments.some(segment => /[<>]/.test(segment.text || ""));
+  const hasSpacingChanges = segments.some(segment => {
+    const spacing = segment.letterSpacing;
+    return spacing && Math.abs(spacing.value || 0) > 0.001;
+  });
+
+  if (families.size > 1) {
+    warnings.push("Mixed font families require a Unity TMP font-asset mapping; raw styled segments are exported.");
+  }
+  if (hasUnsupportedFill) {
+    warnings.push("Mixed text uses unsupported or multiple fills; raw styled segments are exported.");
+  }
+  if (hasTagCharacters) {
+    warnings.push("Mixed text contains angle brackets; automatic TMP Rich Text is disabled to avoid tag injection.");
+  }
+  if (hasSpacingChanges) {
+    warnings.push("Per-segment Figma letter spacing is not preserved by the generated TMP Rich Text.");
+  }
+
+  const compatible = families.size <= 1 && !hasUnsupportedFill && !hasTagCharacters;
+  if (!compatible) return { segments, richText: null };
+
+  const richText = segments.map(segment => {
+    const style = segment.fontStyle || "";
+    const color = unityColor(segment.fills[0], node.opacity ?? 1)?.hex || "#FFFFFFFF";
+    const tags = [
+      [`<size=${segment.fontSize || 16}>`, "</size>"],
+      [`<color=${color}>`, "</color>"]
+    ];
+    if (/bold|black|semi[ -]?bold|demi/i.test(style)) tags.push(["<b>", "</b>"]);
+    if (/italic|oblique/i.test(style)) tags.push(["<i>", "</i>"]);
+    if (segment.textDecoration === "UNDERLINE") tags.push(["<u>", "</u>"]);
+    if (segment.textDecoration === "STRIKETHROUGH") tags.push(["<s>", "</s>"]);
+    return `${tags.map(tag => tag[0]).join("")}${segment.text || ""}${tags.reverse().map(tag => tag[1]).join("")}`;
+  }).join("");
+  return { segments, richText };
+}
+
+function textHints(node, components, warnings) {
+  if (node.type !== "TEXT") return;
+  const fills = Array.isArray(node.fills) ? node.fills.filter(fill => fill.visible !== false) : [];
+  const solid = fills.find(fill => fill.type === "SOLID");
+  const fontName = valueOrNull(node.fontName);
+  const fontSize = valueOrNull(node.fontSize);
+  const letterSpacing = valueOrNull(node.letterSpacing);
+  const lineHeight = valueOrNull(node.lineHeight);
+  const styledText = styledTextHints(node, warnings);
+  components.push({
+    type: "TextMeshProUGUI",
+    fields: {
+      text: styledText?.richText || node.characters || "",
+      sourceText: styledText ? node.characters || "" : null,
+      styledSegments: styledText?.segments || null,
+      fontFamily: fontName?.family || null,
+      fontStyle: fontName?.style || null,
+      fontSize: typeof fontSize === "number" ? round(fontSize) : null,
+      color: solid ? unityColor(solid, node.opacity ?? 1) : null,
+      characterSpacing: letterSpacing?.unit === "PIXELS" ? round(letterSpacing.value) : letterSpacing,
+      lineSpacingSource: lineHeight,
+      alignment: tmpAlignment(node.textAlignVertical || "TOP", node.textAlignHorizontal || "LEFT"),
+      sourceAlignment: `${node.textAlignVertical || "TOP"}-${node.textAlignHorizontal || "LEFT"}`,
+      wrapping: node.textAutoResize !== "WIDTH_AND_HEIGHT",
+      overflow: node.textAutoResize === "TRUNCATE" ? "Ellipsis" : "Overflow",
+      richText: true,
+      autoSize: false
+    }
+  });
+  if (isMixed(node.fontName) || isMixed(node.fontSize) || isMixed(node.fills)) {
+    warnings.push("Mixed text styles detected; generated TMP Rich Text and styled segments require verification.");
+  }
+  if (letterSpacing?.unit === "PIXELS" && Math.abs(letterSpacing.value || 0) > 0.001) {
+    warnings.push("Figma letter spacing in pixels requires conversion using TMP font metrics.");
+  }
+  const strokes = Array.isArray(node.strokes) ? node.strokes.filter(stroke => stroke.visible !== false) : [];
+  if (strokes.length) {
+    const stroke = strokes.find(item => item.type === "SOLID");
+    components.push({
+      type: "TMP Text Outline",
+      fields: {
+        color: stroke ? unityColor(stroke, node.opacity ?? 1) : null,
+        figmaStrokeWeight: round(node.strokeWeight || 0),
+        estimatedOutlineWidth: round(Math.min(1,
+          (node.strokeWeight || 0) / Math.max(1, typeof node.fontSize === "number" ? node.fontSize : 16)))
+      }
+    });
+    warnings.push("TMP outline width is an SDF estimate and depends on the font atlas/material.");
+  }
+}
+
+function serializeBoundVariables(node) {
+  if (!("boundVariables" in node) || !node.boundVariables) return [];
+  const result = [];
+  for (const [field, binding] of Object.entries(node.boundVariables)) {
+    const bindings = Array.isArray(binding) ? binding : [binding];
+    for (const alias of bindings) {
+      if (alias?.id) result.push({ field, id: alias.id });
+    }
+  }
+  return result;
+}
+
+function analyzeUnityInspector(node) {
+  const warnings = [];
+  const components = [];
+  components.push({ type: "RectTransform", fields: rectTransformHints(node, warnings) });
+  layoutHints(node, components, warnings);
+  visualHints(node, components, warnings);
+  textHints(node, components, warnings);
+
+  if ("rotation" in node && Math.abs(node.rotation || 0) > 0.001) {
+    warnings.push("Figma rotation is clockwise/Y-down; Unity rotationZ is converted to the opposite sign.");
+  }
+  if ("layoutPositioning" in node && node.layoutPositioning === "ABSOLUTE") {
+    warnings.push("Absolute child inside Auto Layout should be placed in a separate Unity overlay container.");
+  }
+
+  return {
+    schemaVersion: INSPECTOR_SCHEMA_VERSION,
+    node: { id: node.id, name: node.name, type: node.type },
+    components,
+    variables: serializeBoundVariables(node),
+    warnings: [...new Set(warnings)],
+    figmaSource: {
+      constraints: "constraints" in node ? node.constraints : null,
+      layoutMode: "layoutMode" in node ? node.layoutMode : null,
+      layoutSizingHorizontal: "layoutSizingHorizontal" in node ? node.layoutSizingHorizontal : null,
+      layoutSizingVertical: "layoutSizingVertical" in node ? node.layoutSizingVertical : null,
+      opacity: "opacity" in node ? valueOrNull(node.opacity) : null,
+      blendMode: "blendMode" in node ? valueOrNull(node.blendMode) : null,
+      fills: "fills" in node ? valueOrNull(node.fills) : null,
+      strokes: "strokes" in node ? valueOrNull(node.strokes) : null,
+      effects: "effects" in node ? valueOrNull(node.effects) : null,
+      clipsContent: "clipsContent" in node ? valueOrNull(node.clipsContent) : null
+    }
+  };
+}
+
+async function resolveVariables(node, inspector) {
+  if (!figma.variables?.getVariableByIdAsync) return inspector;
+  inspector.variables = await Promise.all(inspector.variables.map(async binding => {
+    try {
+      const variable = await figma.variables.getVariableByIdAsync(binding.id);
+      if (!variable) return binding;
+      const resolved = variable.resolveForConsumer(node);
+      return { ...binding, name: variable.name, resolvedType: resolved.resolvedType, value: resolved.value };
+    } catch (error) {
+      return { ...binding, error: String(error?.message || error) };
+    }
+  }));
+  return inspector;
+}
+
+function formatInspectorValue(value, indent = 0) {
+  if (value === null || value === undefined) return "—";
+  if (typeof value !== "object") return String(value);
+  if (Array.isArray(value)) return `[${value.map(item => formatInspectorValue(item)).join(", ")}]`;
+  return Object.entries(value).map(([key, child]) =>
+    `${" ".repeat(indent)}${key}: ${formatInspectorValue(child, indent + 2)}`).join("\n");
+}
+
+function inspectorCodegenResults(inspector) {
+  const results = inspector.components.map(component => ({
+    title: component.type,
+    language: "PLAINTEXT",
+    code: Object.entries(component.fields).map(([key, value]) =>
+      `${key}: ${formatInspectorValue(value, 2)}`).join("\n")
+  }));
+  if (inspector.variables.length) {
+    results.push({ title: "Figma Variables", language: "JSON", code: JSON.stringify(inspector.variables, null, 2) });
+  }
+  results.push({ title: "Figma Source", language: "JSON", code: JSON.stringify(inspector.figmaSource, null, 2) });
+  if (inspector.warnings.length) {
+    results.push({ title: "Warnings", language: "PLAINTEXT", code: inspector.warnings.map(value => `⚠ ${value}`).join("\n") });
+  }
+  return results;
+}
 
 function selectedNode() {
   const selection = figma.currentPage.selection;
@@ -56,7 +553,8 @@ function selectionPayload() {
       width: "width" in node ? node.width : null,
       height: "height" in node ? node.height : null
     },
-    annotation: readAnnotation(node)
+    annotation: readAnnotation(node),
+    unityInspector: analyzeUnityInspector(node)
   };
 }
 
@@ -123,7 +621,8 @@ function serializeNode(node) {
     name: node.name,
     type: node.type,
     visible: "visible" in node ? node.visible : true,
-    annotation: readAnnotation(node)
+    annotation: readAnnotation(node),
+    unityInspector: analyzeUnityInspector(node)
   };
 
   const scalarFields = [
@@ -167,6 +666,13 @@ function collectAnnotations() {
 
 figma.on("selectionchange", postSelection);
 figma.on("currentpagechange", postSelection);
+
+if (figma.editorType === "dev" && figma.mode === "codegen") {
+  figma.codegen.on("generate", async event => {
+    const inspector = await resolveVariables(event.node, analyzeUnityInspector(event.node));
+    return inspectorCodegenResults(inspector);
+  });
+}
 
 figma.ui.onmessage = async message => {
   try {
@@ -255,7 +761,8 @@ figma.ui.onmessage = async message => {
           }
           return false;
         }),
-        document: serializeNode(node)
+        document: serializeNode(node),
+        unityInspector: await resolveVariables(node, analyzeUnityInspector(node))
       };
 
       figma.ui.postMessage({ type: "export-ready", payload });
@@ -275,3 +782,16 @@ figma.ui.onmessage = async message => {
     figma.notify(`FigmaGamedev: ${String(error?.message || error)}`, { error: true });
   }
 };
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    round,
+    colorToHex,
+    srgbToLinear,
+    horizontalAnchor,
+    verticalAnchor,
+    rectTransformHints,
+    analyzeUnityInspector,
+    inspectorCodegenResults
+  };
+}

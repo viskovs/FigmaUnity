@@ -22,6 +22,19 @@
 5. Выберите `manifest.json` в корне репозитория.
 6. Запустите **Plugins → Development → FigmaGamedev**.
 
+### Unity Inspector в Dev Mode
+
+После импорта manifest:
+
+1. включите **Dev Mode** в Figma;
+2. откройте вкладку **Code**;
+3. выберите язык `Unity uGUI Inspector`;
+4. выделите слой, frame или text node.
+
+Figma покажет секции RectTransform, Graphic/TMP, Layout, Variables, Source и
+Warnings. Эти же hints попадут в JSON, когда дизайнер экспортирует размеченный
+экран.
+
 ### Development ID
 
 В репозитории находится placeholder ID. Если Figma не принимает manifest:
@@ -53,12 +66,16 @@
 
 ## Обновление development-версии
 
-Плагин не требует сборки. После изменения `code.js`, `ui.html` или `manifest.json`:
+Плагин не требует сборки. После изменения `code.js` или `ui.html`:
 
 1. сохраните файл;
 2. закройте окно плагина;
 3. выполните **Plugins → Development → Reload plugins**;
 4. откройте FigmaGamedev снова.
+
+После изменения `manifest.json` безопаснее удалить development plugin и снова
+выполнить **Import plugin from manifest…**: Figma должна перечитать Dev Mode
+capabilities и список codegen languages.
 
 После изменения Unity Package дождитесь domain reload и повторной компиляции.
 

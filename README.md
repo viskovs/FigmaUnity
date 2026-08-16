@@ -21,6 +21,12 @@ Figma, а Unity и AI-инструменты получают не только 
 - валидация выбранного узла;
 - сканирование размеченных узлов текущей страницы;
 - экспорт выбранной сущности и Auto Layout-дерева в JSON;
+- Unity Inspector Preview для выбранного слоя;
+- Dev Mode codegen `Unity uGUI Inspector`;
+- hints для RectTransform, Image/RawImage, TMP, CanvasGroup, LayoutGroup,
+  ContentSizeFitter и LayoutElement;
+- совместимый TMP Rich Text и исходные mixed-style segments;
+- Figma Source, resolved variables и явные warnings для неоднозначных свойств;
 - отправка пакета в Unity через локальный bridge на `localhost:19783`.
 
 ## Общая схема
@@ -46,6 +52,9 @@ Prefab Variant + проектные компоненты + проверка
 3. Выберите **Plugins → Development → Import plugin from manifest…**.
 4. Укажите корневой `manifest.json`.
 5. Запустите **Plugins → Development → FigmaGamedev**.
+
+Для послойной проверки Unity-полей откройте **Dev Mode → Code** и выберите
+`Unity uGUI Inspector`.
 
 Если Figma отклоняет development ID, создайте пустой development plugin,
 скопируйте числовой `id` из созданного manifest в этот `manifest.json` и снова
@@ -96,6 +105,7 @@ Template: unity.screen.lobby
 - [Модель аннотаций](docs/annotation-model.md)
 - [Формат Unity Catalog](docs/catalog-format.md)
 - [Формат экспорта](docs/export-format.md)
+- [Unity Inspector Hints](docs/unity-inspector-hints.md)
 - [Архитектура](docs/architecture.md)
 - [Разработка плагина](docs/development.md)
 - [Безопасность](docs/security.md)

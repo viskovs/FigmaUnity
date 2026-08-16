@@ -29,6 +29,7 @@
 
 ## Phase 3 — Normalizer и Layout Compiler
 
+- [x] Inspector-style Unity hints и Dev Mode codegen;
 - [ ] logical tree;
 - [ ] wrapper flattening;
 - [ ] Auto Layout recipes;

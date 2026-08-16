@@ -8,6 +8,14 @@ Repositories inspected locally:
 - `zasuozz-oss/figma-to-unity`;
 - `simonoliver/UnityFigmaBridge`.
 
+Additional Figma Community benchmark:
+
+- `UnityUI / Unity uGUI Inspector` — Dev Mode codegen для ручного переноса
+  RectTransform, Image/RawImage, TMP и layout fields. Он не создаёт hierarchy или
+  prefab, но его Inspector-style output и явные Warnings полезны как quality
+  benchmark. FigmaGamedev реализует аналогичную идею независимо и включает hints в
+  semantic package для AI.
+
 ## Decision
 
 Keep FigmaGamedev as the semantic annotation layer. Reuse established ideas for
