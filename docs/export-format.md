@@ -1,34 +1,74 @@
-# FigmaGamedev export format
+# Формат экспортируемого пакета
 
-The MVP exports one JSON document for the currently selected, annotated root.
+## Корень
 
-Top-level fields:
+```json
+{
+  "schema": "figma-gamedev-ui-package",
+  "schemaVersion": 1,
+  "exportedAt": "2026-08-16T10:00:00.000Z",
+  "figma": {},
+  "entity": {},
+  "catalogVersion": "1.0.0",
+  "annotations": [],
+  "document": {}
+}
+```
 
-- `schema`: always `figma-gamedev-ui-package`;
-- `schemaVersion`: version of the metadata contract;
-- `figma`: source file, page and root node information;
-- `entity`: annotation stored on the selected root;
-- `catalogVersion`: Unity catalog version used by the designer;
-- `annotations`: all annotated descendants;
-- `document`: raw, recursively serialized Figma layout tree.
+## figma
 
-The `document` tree retains Auto Layout properties including direction, wrapping,
-sizing modes, padding, spacing, alignment, constraints, min/max sizes and component
-property values. A later normalizer can remove empty wrapper frames before the Unity
-layout compiler selects a layout recipe.
+```json
+{
+  "fileName": "Game UI",
+  "pageName": "Shop",
+  "rootNodeId": "123:456"
+}
+```
 
-## Stable IDs
+## entity
 
-IDs such as `lootbox-shop.main` and `unity.ui.product-card` are integration IDs.
-They must not be derived from mutable layer names. Figma node IDs are included for
-traceability and repeat imports but are not a replacement for integration IDs.
+Аннотация выбранного корневого узла. Экспорт разрешён только для размеченного и
+валидного объекта.
 
-## Annotation ownership
+## annotations
 
-Annotations are stored using Figma shared plugin data:
+Все размеченные потомки выбранного root. Аннотации вне экспортируемого поддерева не
+включаются.
 
-- namespace: `figmagamedev`;
-- key: `annotation`;
-- value: versioned JSON.
+## document
 
-The plugin never changes the visual hierarchy when an annotation is saved.
+Рекурсивное исходное дерево. Для каждого узла по возможности экспортируются:
+
+- ID, name, type и visibility;
+- position, size, rotation и opacity;
+- `layoutMode` и `layoutWrap`;
+- primary/counter sizing modes;
+- alignment;
+- item/counter-axis spacing;
+- padding;
+- horizontal/vertical sizing;
+- min/max width/height;
+- constraints;
+- Figma component properties;
+- semantic annotation;
+- children.
+
+Это сырой источник для normalizer. Он не является готовой Unity-иерархией.
+
+## Имена файлов
+
+При скачивании:
+
+```text
+<entity-id>.figma-gamedev.json
+```
+
+В Unity Inbox добавляется timestamp для сохранения истории публикаций.
+
+## Текущие ограничения
+
+- binary assets не включены;
+- fills, strokes и effects представлены не полностью;
+- instance main component key для dynamic-page режима пока не разрешается;
+- нет content hash и подписи;
+- нет migration section.

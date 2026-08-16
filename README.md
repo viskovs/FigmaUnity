@@ -1,133 +1,146 @@
-# FigmaGamedev — Figma plugin MVP
+# FigmaGamedev
 
-FigmaGamedev lets designers mark Figma nodes as Unity features, screens,
-components and behavioral layers. The exported JSON is intended for a future
-Codex/Claude skill and Unity Editor importer.
+FigmaGamedev — прототип пайплайна семантической передачи игровых интерфейсов из
+Figma в Unity. Дизайнер размечает фичи, экраны, компоненты и поведение прямо в
+Figma, а Unity и AI-инструменты получают не только изображение макета, но и
+формальный контракт для сборки оптимизированного UI.
 
-## Included in this MVP
+> Статус: ранний MVP для проверки процесса разметки. Автоматическая генерация
+> Unity-prefab, импорт графики и AI-skill ещё не реализованы.
 
-- Feature, Screen, Component and Layer/Behavior annotations;
-- screen template and window-root selection;
-- existing prefab, new prefab and Prefab Variant intent;
-- missing/new child policies for variants;
-- Screen Root, Safe Area, Animation Group, Content Slot, Repeated List,
-  Preserve Wrapper and Ignore roles;
-- animation target mode, target binding, delay and ordering;
-- local import of an `figma-gamedev-catalog.json` file;
-- validation of the most important fields;
-- scanning all annotated nodes on the current Figma page;
-- JSON export of the selected entity, its annotations and Auto Layout tree.
-- direct publishing to a local Unity Editor bridge on `localhost:19783`.
+## Что уже работает
 
-The plugin has no server and no external dependencies. This is intentional for a
-fast first iteration.
+- сущности `Feature`, `Screen`, `Component` и `Layer / Behavior`;
+- связь экрана с feature, Unity-именем и screen template;
+- намерение переиспользовать prefab, создать новый prefab или Prefab Variant;
+- политики `Keep`, `Deactivate`, `Remove` и ограничения новых дочерних элементов;
+- роли `Screen Root`, `Safe Area`, `Animation Group`, `Content Slot`,
+  `Repeated List`, `Preserve Wrapper` и `Ignore`;
+- параметры Animation Group: профиль, выбор целей, порядок и задержка;
+- импорт Unity Catalog из JSON;
+- валидация выбранного узла;
+- сканирование размеченных узлов текущей страницы;
+- экспорт выбранной сущности и Auto Layout-дерева в JSON;
+- отправка пакета в Unity через локальный bridge на `localhost:19783`.
 
-## Install as a development plugin
-
-1. Install and open the **Figma desktop app**.
-2. Open any Figma Design file.
-3. Open **Plugins → Development → Import plugin from manifest…**.
-4. Select this project's `manifest.json`.
-5. Run it through **Plugins → Development → FigmaGamedev**.
-
-The `id` in the supplied manifest is a development placeholder. If your Figma
-version rejects an unregistered ID, first use **Plugins → Development → New
-plugin…** to create an empty plugin, copy the numeric ID from its generated
-manifest into this project's `manifest.json`, and import this manifest again.
-Keep that assigned ID for subsequent local updates and publication.
-
-## Fast update loop
-
-There is no build step:
-
-1. Edit `code.js` or `ui.html`.
-2. Save the file.
-3. Close the running plugin window in Figma.
-4. Run **Plugins → Development → FigmaGamedev** again.
-
-If Figma appears to retain an old version, use **Plugins → Development → Reload
-plugins**, then reopen the plugin. Keeping the plugin folder at the same absolute
-path avoids re-importing the manifest after every change.
-
-## First test
-
-1. Run the plugin.
-2. In **Unity Catalog**, import
-   `examples/figma-gamedev-catalog.example.json`.
-3. Select a top-level screen frame.
-4. Choose `Screen`, enter:
-   - ID: `lootbox-shop.main`;
-   - Feature ID: `lootbox-shop`;
-   - Unity Name: `LootboxShopScreen`;
-   - Template: `unity.screen.lobby`.
-5. Save the annotation.
-6. Select a content frame, choose `Layer / Behavior`, enable `Safe Area`, and save.
-7. Select a cards container, enable `Animation Group`, choose
-   `unity.animation.staggered-appear`, and save.
-8. Select the screen root again and press **Export JSON**.
-
-The browser-style plugin UI downloads a file named similar to
-`lootbox-shop.main.figma-gamedev.json`.
-
-## Connect the local Unity bridge
-
-The `UnityPackage` directory is a local Unity package included in this project.
-
-1. In a test Unity project, open **Window → Package Manager**.
-2. Press **+ → Add package from disk…**.
-3. Select `UnityPackage/package.json`.
-4. Wait for script compilation.
-5. The bridge starts automatically; it can also be controlled through
-   **Tools → FigmaGamedev**.
-6. Reopen the Figma plugin. Its status should change to `Unity Bridge подключён`.
-7. Select an annotated screen and press **Отправить выбранный экран в Unity**.
-
-Received packages are stored under:
+## Общая схема
 
 ```text
-<Unity project>/Library/FigmaGamedev/Inbox/
+Unity Catalog
+      ↓
+FigmaGamedev plugin
+      ↓ дизайнер размечает Screen / Component / Behavior
+Semantic UI package
+      ↓ JSON-файл или localhost bridge
+Unity inbox
+      ↓ будущий compiler / AI skill
+Prefab Variant + проектные компоненты + проверка
 ```
 
-This location intentionally avoids modifying `Assets`. A later reviewed import
-step or AI skill will consume the inbox package and create project assets.
+## Быстрый старт
 
-## Publishing privately to a Figma organization
+### 1. Подключить Figma-плагин
 
-For initial testing, keep the plugin in Development mode. It updates immediately
-from this local folder and is the quickest workflow.
+1. Склонируйте репозиторий.
+2. Откройте Figma Desktop и любой Figma Design-файл.
+3. Выберите **Plugins → Development → Import plugin from manifest…**.
+4. Укажите корневой `manifest.json`.
+5. Запустите **Plugins → Development → FigmaGamedev**.
 
-When the MVP is ready for designers:
+Если Figma отклоняет development ID, создайте пустой development plugin,
+скопируйте числовой `id` из созданного manifest в этот `manifest.json` и снова
+импортируйте его.
 
-1. In Figma, open **Plugins → Development → Manage plugins in development**.
-2. Choose the plugin and start the publish flow.
-3. Select private organization/team distribution if your Figma plan and role allow
-   it; otherwise invite the designers to import the development manifest locally.
-4. Complete the name, icon, description and permission review.
-5. Replace the development placeholder in `manifest.json` only with the ID Figma
-   assigns during its publication flow.
+### 2. Импортировать пример каталога
 
-Public Community publication is not recommended during prototyping because review
-and release management slow down the feedback loop.
+В секции **Unity Catalog** загрузите
+`examples/figma-gamedev-catalog.example.json`.
 
-## Updating a published plugin
+### 3. Разметить экран
 
-Continue editing the same project and publish an update through Figma's plugin
-management screen. Keep the Figma-assigned plugin ID unchanged. Increase the
-human-facing version in release notes and keep annotation `schemaVersion`
-backward-compatible.
+Выделите один верхнеуровневый Frame:
 
-For daily development, test locally first; publish a private update only after the
-current annotation schema has been verified on a copy of a real production design file.
+```text
+Type: Screen
+ID: lootbox-shop.main
+Feature ID: lootbox-shop
+Unity Name: LootboxShopScreen
+Template: unity.screen.lobby
+```
 
-## Current limitations
+Нажмите **Сохранить разметку**.
 
-- Export is a single JSON file, not a ZIP with rendered assets yet.
-- There is no Unity catalog exporter yet; the included catalog is an example.
-- There is no normalization or Unity prefab generation yet.
-- The MVP stores the catalog in Figma's local client storage, so each designer must
-  import it on their own machine.
-- Screen/version publishing and server delivery are not implemented yet.
+### 4. Экспортировать
 
-The local bridge currently transfers JSON only; rendered PNG/SVG assets and ZIP
-packages are a later transport extension. These are the next layers after validating
-that the annotation UX is comfortable for designers.
+Снова выделите корень экрана и нажмите **Скачать JSON**. Плагин создаст файл
+`lootbox-shop.main.figma-gamedev.json`.
+
+## Подключение к Unity
+
+1. В Unity откройте **Window → Package Manager**.
+2. Выберите **+ → Add package from disk…**.
+3. Укажите `UnityPackage/package.json`.
+4. После компиляции bridge запустится автоматически.
+5. Перезапустите Figma-плагин.
+6. Нажмите **Отправить выбранный экран в Unity**.
+
+Входящие пакеты сохраняются в
+`<Unity project>/Library/FigmaGamedev/Inbox/`. Bridge не изменяет `Assets` и не
+создаёт prefab автоматически.
+
+## Документация
+
+- [Установка](docs/installation.md)
+- [Рабочий процесс дизайнера](docs/designer-workflow.md)
+- [Unity Bridge](docs/unity-bridge.md)
+- [Модель аннотаций](docs/annotation-model.md)
+- [Формат Unity Catalog](docs/catalog-format.md)
+- [Формат экспорта](docs/export-format.md)
+- [Архитектура](docs/architecture.md)
+- [Разработка плагина](docs/development.md)
+- [Безопасность](docs/security.md)
+- [Решение проблем](docs/troubleshooting.md)
+- [Roadmap](docs/roadmap.md)
+- [Исследование решений](research/existing-solutions.md)
+- [Как внести изменения](CONTRIBUTING.md)
+- [История изменений](CHANGELOG.md)
+
+## Структура репозитория
+
+```text
+.
+├── manifest.json
+├── code.js
+├── ui.html
+├── UnityPackage/
+├── examples/
+├── docs/
+└── research/
+```
+
+## Быстрое обновление development plugin
+
+Сборщик и внешние зависимости отсутствуют:
+
+1. Измените `code.js` или `ui.html`.
+2. Сохраните файл.
+3. Закройте окно плагина.
+4. Запустите FigmaGamedev снова.
+
+Если Figma показывает старую версию, выполните **Plugins → Development → Reload
+plugins**.
+
+## Ограничения MVP
+
+- экспортируется JSON, но не ZIP с PNG/SVG;
+- Unity Catalog пока создаётся вручную;
+- нет нормализатора сложной Figma-иерархии и Unity layout compiler;
+- нет генерации/обновления prefab и Prefab Variant;
+- нет автоматического заполнения project-specific компонентов;
+- нет AI-skill, визуального сравнения и mobile performance validator;
+- каталог хранится локально у каждого дизайнера.
+
+## Лицензия
+
+Лицензия проекта пока не выбрана владельцем репозитория. До добавления файла
+`LICENSE` стандартное авторское право сохраняется за владельцем кода.
