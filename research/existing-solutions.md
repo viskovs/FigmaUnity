@@ -1,6 +1,6 @@
 # Existing Figma → Unity solutions: technical audit
 
-Audit date: 2026-08-16.
+Audit updated: 2026-10-21.
 
 Repositories inspected locally:
 
@@ -16,12 +16,32 @@ Additional Figma Community benchmark:
   benchmark. FigmaGamedev реализует аналогичную идею независимо и включает hints в
   semantic package для AI.
 
+Official Unity benchmark:
+
+- [UI Toolkit Connector for Figma design](https://docs.unity3d.com/Packages/com.unity.ui.figma@0.1/manual/index.html)
+  `0.1.0-exp.1` — официальный экспериментальный путь Figma → UXML/USS для Unity
+  6000.3+. Он не создаёт uGUI prefab и не решает project-owned prefab overrides,
+  но задаёт хороший UX-эталон: явный node tag, project mapping asset, design
+  tokens, Last import report, re-import, acknowledgement и защищённый transport.
+
 ## Decision
 
 Keep FigmaGamedev as the semantic annotation layer. Reuse established ideas for
 transport, manifest generation, layout conversion and asset handling, but implement
 the project-specific Unity compiler around project-owned templates, prefab bindings and mobile
 validation.
+
+FigmaGamedev 0.3 перенимает концепции, а не код официального connector:
+
+- первый явный match побеждает;
+- stable component key предпочтительнее имени;
+- project catalog хранит mappings;
+- preflight показывает потери, а не скрывает их;
+- package имеет version, fingerprint и delivery receipt;
+- локальная публикация требует session token.
+
+Официальный connector остаётся возможным отдельным backend для UI Toolkit. Он не
+является зависимостью uGUI compiler.
 
 ## cdmvision/unity-figma-importer
 

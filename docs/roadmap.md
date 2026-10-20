@@ -13,15 +13,16 @@
 
 - [ ] TypeScript и JSON Schema;
 - [ ] package ZIP с PNG/SVG;
-- [ ] content hash и package version;
+- [x] content fingerprint и package version;
 - [ ] выбор Unity-проекта;
-- [ ] status/acknowledgement;
+- [x] status/acknowledgement;
 - [ ] private publishing workflow.
 
 ## Phase 2 — Unity Catalog
 
 - [ ] автоматический exporter из Unity;
 - [ ] prefab GUID и variants;
+- [x] stable component key mappings;
 - [ ] slots и removable children;
 - [ ] serialized property bindings;
 - [ ] screen templates;

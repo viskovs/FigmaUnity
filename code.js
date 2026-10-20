@@ -1,7 +1,9 @@
 const NAMESPACE = "figmagamedev";
 const ANNOTATION_KEY = "annotation";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const INSPECTOR_SCHEMA_VERSION = 1;
+const PLUGIN_VERSION = "0.3.0";
+let selectionRevision = 0;
 
 figma.showUI(__html__, {
   width: 420,
@@ -23,6 +25,27 @@ function isMixed(value) {
 
 function valueOrNull(value) {
   return value === undefined || isMixed(value) ? null : value;
+}
+
+function normalizeLookupName(value) {
+  return String(value || "").toLocaleLowerCase("en-US").replace(/[^a-z0-9а-яё]+/giu, "");
+}
+
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  return `{${Object.keys(value).sort().map(key =>
+    `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+}
+
+function fnv1a32(value) {
+  let hash = 0x811c9dc5;
+  const text = String(value || "");
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 function colorToHex(color, alpha = 1) {
@@ -506,6 +529,81 @@ function selectedNode() {
   return selection.length === 1 ? selection[0] : null;
 }
 
+async function componentIdentity(node) {
+  if (!node) return null;
+  let component = null;
+  if (node.type === "COMPONENT" || node.type === "COMPONENT_SET") {
+    component = node;
+  } else if (node.type === "INSTANCE") {
+    try {
+      component = typeof node.getMainComponentAsync === "function"
+        ? await node.getMainComponentAsync()
+        : node.mainComponent;
+    } catch (_error) {
+      component = null;
+    }
+  }
+  if (!component) return null;
+
+  const componentSet = component.type === "COMPONENT_SET"
+    ? component
+    : component.parent?.type === "COMPONENT_SET" ? component.parent : null;
+  return {
+    componentKey: component.key || null,
+    componentName: component.name || null,
+    componentSetKey: componentSet?.key || null,
+    componentSetName: componentSet?.name || null,
+    source: node.type === "INSTANCE" ? "instance-main-component" : "component"
+  };
+}
+
+function findCatalogMapping(nodeName, identity, catalog) {
+  const mappings = catalog?.componentMappings || catalog?.mappings || [];
+  if (!Array.isArray(mappings) || mappings.length === 0) return null;
+
+  const keyCandidates = [identity?.componentKey, identity?.componentSetKey].filter(Boolean);
+  for (const mapping of mappings) {
+    const mappingKeys = [mapping.figmaComponentKey, mapping.figmaComponentSetKey].filter(Boolean);
+    if (mappingKeys.some(key => keyCandidates.includes(key))) {
+      return { mapping, matchedBy: "component-key" };
+    }
+  }
+
+  const names = [nodeName, identity?.componentName, identity?.componentSetName]
+    .map(normalizeLookupName).filter(Boolean);
+  for (const mapping of mappings) {
+    const mappingName = normalizeLookupName(mapping.figmaComponentName || mapping.figmaName);
+    if (mappingName && names.includes(mappingName)) {
+      return { mapping, matchedBy: "component-name" };
+    }
+  }
+  return null;
+}
+
+function resolveUnityBinding(nodeName, annotation, identity, catalog) {
+  if (annotation?.kind === "component" &&
+      (annotation.basePrefabId || ["new-prefab", "visual-only"].includes(annotation.generationMode))) {
+    return {
+      source: "annotation",
+      prefabId: annotation.basePrefabId,
+      generationMode: annotation.generationMode || "reuse-prefab",
+      variantName: annotation.variantName || null,
+      propertyBindings: annotation.propertyBindings || []
+    };
+  }
+
+  const match = findCatalogMapping(nodeName, identity, catalog);
+  if (!match) return null;
+  return {
+    source: match.matchedBy,
+    mappingId: match.mapping.id || null,
+    prefabId: match.mapping.prefabId || match.mapping.basePrefabId || null,
+    generationMode: match.mapping.generationMode || "reuse-prefab",
+    variantName: match.mapping.variantName || null,
+    propertyBindings: match.mapping.propertyBindings || []
+  };
+}
+
 function readAnnotation(node) {
   if (!node || typeof node.getSharedPluginData !== "function") return null;
   const raw = node.getSharedPluginData(NAMESPACE, ANNOTATION_KEY);
@@ -531,7 +629,7 @@ function writeAnnotation(node, annotation) {
   );
 }
 
-function selectionPayload() {
+async function selectionPayload() {
   const selection = figma.currentPage.selection;
   if (selection.length !== 1) {
     return {
@@ -544,6 +642,9 @@ function selectionPayload() {
   }
 
   const node = selection[0];
+  const annotation = readAnnotation(node);
+  const catalog = await figma.clientStorage.getAsync("unityCatalog");
+  const identity = await componentIdentity(node);
   return {
     ok: true,
     node: {
@@ -553,13 +654,17 @@ function selectionPayload() {
       width: "width" in node ? node.width : null,
       height: "height" in node ? node.height : null
     },
-    annotation: readAnnotation(node),
+    annotation,
+    componentIdentity: identity,
+    resolvedBinding: resolveUnityBinding(node.name, annotation, identity, catalog),
     unityInspector: analyzeUnityInspector(node)
   };
 }
 
-function postSelection() {
-  figma.ui.postMessage({ type: "selection", payload: selectionPayload() });
+async function postSelection() {
+  const revision = ++selectionRevision;
+  const payload = await selectionPayload();
+  if (revision === selectionRevision) figma.ui.postMessage({ type: "selection", payload });
 }
 
 function validateAnnotation(node, annotation) {
@@ -578,8 +683,8 @@ function validateAnnotation(node, annotation) {
   if (annotation.kind === "component") {
     if (!annotation.featureId) warnings.push("Компонент не привязан к Feature.");
     if (!annotation.unityName) errors.push("Укажите Unity Name компонента.");
-    if (annotation.generationMode === "prefab-variant" && !annotation.basePrefabId) {
-      errors.push("Для Prefab Variant нужен Base Prefab ID.");
+    if (["reuse-prefab", "prefab-variant"].includes(annotation.generationMode) && !annotation.basePrefabId) {
+      errors.push("Для переиспользования или Prefab Variant нужен Prefab / Base Prefab ID.");
     }
   }
   if (annotation.kind === "layer" && (!annotation.roles || annotation.roles.length === 0)) {
@@ -615,13 +720,17 @@ function serializeComponentProperties(node) {
   return result;
 }
 
-function serializeNode(node) {
+async function serializeNode(node, catalog) {
+  const annotation = readAnnotation(node);
+  const identity = await componentIdentity(node);
   const result = {
     id: node.id,
     name: node.name,
     type: node.type,
     visible: "visible" in node ? node.visible : true,
-    annotation: readAnnotation(node),
+    annotation,
+    componentIdentity: identity,
+    resolvedBinding: resolveUnityBinding(node.name, annotation, identity, catalog),
     unityInspector: analyzeUnityInspector(node)
   };
 
@@ -644,12 +753,155 @@ function serializeNode(node) {
   const componentProperties = serializeComponentProperties(node);
   if (componentProperties) result.componentProperties = componentProperties;
 
-  if ((node.type === "COMPONENT" || node.type === "COMPONENT_SET") && "key" in node) {
-    result.componentKey = node.key || null;
+  if ("children" in node) {
+    result.children = [];
+    for (const child of node.children) result.children.push(await serializeNode(child, catalog));
+  }
+  return result;
+}
+
+function catalogHasId(collection, id) {
+  if (!id) return true;
+  return Array.isArray(collection) && collection.some(entry =>
+    (typeof entry === "string" ? entry : entry?.id) === id);
+}
+
+function validateCatalog(catalog) {
+  const errors = [];
+  if (!catalog || typeof catalog !== "object") errors.push("Каталог должен быть JSON-объектом.");
+  if (catalog?.schema !== "figma-gamedev-ui-catalog") {
+    errors.push("Неверный schema каталога. Ожидается 'figma-gamedev-ui-catalog'.");
+  }
+  if (!catalog?.version) errors.push("В каталоге отсутствует version.");
+  for (const field of ["screenTemplates", "prefabs", "safeAreaProfiles", "animationProfiles"]) {
+    if (catalog?.[field] != null && !Array.isArray(catalog[field])) {
+      errors.push(`Поле '${field}' должно быть массивом.`);
+    }
+  }
+  if (catalog?.componentMappings != null && !Array.isArray(catalog.componentMappings)) {
+    errors.push("Поле 'componentMappings' должно быть массивом.");
+  }
+  const mappingIds = new Set();
+  const componentMappings = Array.isArray(catalog?.componentMappings) ? catalog.componentMappings : [];
+  for (const [index, mapping] of componentMappings.entries()) {
+    const label = mapping?.id || `componentMappings[${index}]`;
+    if (mapping?.id && mappingIds.has(mapping.id)) errors.push(`Дублирован mapping ID '${mapping.id}'.`);
+    if (mapping?.id) mappingIds.add(mapping.id);
+    if (!mapping?.figmaComponentKey && !mapping?.figmaComponentSetKey &&
+        !mapping?.figmaComponentName && !mapping?.figmaName) {
+      errors.push(`${label}: нужен Figma component key или name.`);
+    }
+    const mode = mapping?.generationMode || "reuse-prefab";
+    const prefabId = mapping?.prefabId || mapping?.basePrefabId;
+    if (!["new-prefab", "visual-only"].includes(mode) && !prefabId) {
+      errors.push(`${label}: для '${mode}' нужен prefabId.`);
+    }
+    if (prefabId && !catalogHasId(catalog?.prefabs || catalog?.components, prefabId)) {
+      errors.push(`${label}: prefab '${prefabId}' отсутствует в каталоге.`);
+    }
+    if (mapping?.propertyBindings != null && !Array.isArray(mapping.propertyBindings)) {
+      errors.push(`${label}: propertyBindings должен быть массивом.`);
+    }
+  }
+  return { valid: errors.length === 0, errors };
+}
+
+function buildPackageReport(rootNode, annotation, document, catalog) {
+  const entries = [];
+  const add = (severity, code, node, message) => entries.push({
+    severity,
+    code,
+    nodeId: node?.id || rootNode?.id || null,
+    nodeName: node?.name || rootNode?.name || null,
+    message
+  });
+
+  const rootValidation = validateAnnotation(rootNode, annotation);
+  rootValidation.errors.forEach(message => add("error", "ROOT_ANNOTATION_INVALID", document, message));
+  rootValidation.warnings.forEach(message => add("warning", "ROOT_ANNOTATION_WARNING", document, message));
+
+  if (catalog && annotation.kind === "screen" && annotation.templateId &&
+      !catalogHasId(catalog?.screenTemplates, annotation.templateId)) {
+    add("error", "SCREEN_TEMPLATE_UNKNOWN", document,
+      `Screen Template '${annotation.templateId}' отсутствует в текущем Unity Catalog.`);
+  }
+  if (catalog && annotation.kind === "component" && annotation.basePrefabId &&
+      !catalogHasId(catalog?.prefabs || catalog?.components, annotation.basePrefabId)) {
+    add("error", "PREFAB_UNKNOWN", document,
+      `Prefab '${annotation.basePrefabId}' отсутствует в текущем Unity Catalog.`);
   }
 
-  if ("children" in node) result.children = node.children.map(serializeNode);
-  return result;
+  let nodeCount = 0;
+  let maxDepth = 0;
+  let maskCount = 0;
+  const semanticIds = new Map();
+
+  const visit = (node, depth) => {
+    nodeCount += 1;
+    maxDepth = Math.max(maxDepth, depth);
+    const nodeAnnotation = node.annotation;
+
+    for (const warning of node.unityInspector?.warnings || []) {
+      add("warning", "UNITY_CONVERSION_LOSS", node, warning);
+    }
+    if ((node.unityInspector?.components || []).some(component => component.type === "RectMask2D")) {
+      maskCount += 1;
+    }
+    const isIgnored = nodeAnnotation?.roles?.includes("ignore");
+    if (node.type === "INSTANCE" && node.visible !== false && !isIgnored && !node.resolvedBinding) {
+      add("warning", "COMPONENT_UNMAPPED", node,
+        "Figma instance не связан с production-prefab. Добавьте явную разметку или componentMappings в каталог.");
+    }
+    if (node.resolvedBinding?.source === "component-name") {
+      add("warning", "NAME_MAPPING_USED", node,
+        "Prefab найден по имени компонента. Добавьте figmaComponentKey в каталог, чтобы переименование не сломало mapping.");
+    }
+    if (catalog && node.resolvedBinding?.prefabId &&
+        !catalogHasId(catalog?.prefabs || catalog?.components, node.resolvedBinding.prefabId)) {
+      add("error", "MAPPED_PREFAB_UNKNOWN", node,
+        `Mapping ссылается на неизвестный prefab '${node.resolvedBinding.prefabId}'.`);
+    }
+    if (catalog && nodeAnnotation?.roles?.includes("safe-area") && nodeAnnotation.safeAreaProfileId &&
+        !catalogHasId(catalog?.safeAreaProfiles, nodeAnnotation.safeAreaProfileId)) {
+      add("error", "SAFE_AREA_PROFILE_UNKNOWN", node,
+        `Safe Area Profile '${nodeAnnotation.safeAreaProfileId}' отсутствует в каталоге.`);
+    }
+    if (catalog && nodeAnnotation?.roles?.includes("animation-group") && nodeAnnotation.animationProfileId &&
+        !catalogHasId(catalog?.animationProfiles, nodeAnnotation.animationProfileId)) {
+      add("error", "ANIMATION_PROFILE_UNKNOWN", node,
+        `Animation Profile '${nodeAnnotation.animationProfileId}' отсутствует в каталоге.`);
+    }
+    if (nodeAnnotation?.id) {
+      const duplicate = semanticIds.get(nodeAnnotation.id);
+      if (duplicate) {
+        add("error", "DUPLICATE_SEMANTIC_ID", node,
+          `Стабильный ID '${nodeAnnotation.id}' уже используется узлом '${duplicate.name}'.`);
+      } else {
+        semanticIds.set(nodeAnnotation.id, node);
+      }
+    }
+    for (const child of node.children || []) visit(child, depth + 1);
+  };
+  visit(document, 1);
+
+  if (!catalog) add("warning", "CATALOG_MISSING", document,
+    "Unity Catalog не загружен: prefab, template и behavior bindings нельзя проверить.");
+  if (nodeCount > 250) add("warning", "MOBILE_NODE_BUDGET", document,
+    `Экран содержит ${nodeCount} узлов. Проверьте нормализацию и стоимость мобильной иерархии.`);
+  if (maxDepth > 12) add("warning", "MOBILE_DEPTH_BUDGET", document,
+    `Глубина иерархии ${maxDepth}. Рекомендуется упростить wrappers до компиляции.`);
+  if (maskCount > 4) add("warning", "MOBILE_MASK_BUDGET", document,
+    `Найдено ${maskCount} mask-областей. Проверьте overdraw и batching на мобильном устройстве.`);
+
+  const errors = entries.filter(entry => entry.severity === "error").length;
+  const warnings = entries.filter(entry => entry.severity === "warning").length;
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    summary: { errors, warnings, nodeCount, maxDepth, maskCount },
+    canPublish: errors === 0,
+    entries
+  };
 }
 
 function collectAnnotations() {
@@ -662,6 +914,13 @@ function collectAnnotations() {
     nodeType: node.type,
     annotation: readAnnotation(node)
   }));
+}
+
+function collectSubtreeIds(node, result = new Set()) {
+  if (!node) return result;
+  result.add(node.id);
+  if ("children" in node) node.children.forEach(child => collectSubtreeIds(child, result));
+  return result;
 }
 
 figma.on("selectionchange", postSelection);
@@ -678,8 +937,12 @@ figma.ui.onmessage = async message => {
   try {
     if (message.type === "ready") {
       const catalog = await figma.clientStorage.getAsync("unityCatalog");
+      const bridgeToken = await figma.clientStorage.getAsync("bridgeToken");
+      const lastExport = await figma.clientStorage.getAsync("lastExportPackage");
       figma.ui.postMessage({ type: "catalog", payload: catalog || null });
-      postSelection();
+      figma.ui.postMessage({ type: "bridge-settings", payload: { token: bridgeToken || "" } });
+      figma.ui.postMessage({ type: "last-export-state", payload: { available: Boolean(lastExport) } });
+      await postSelection();
       return;
     }
 
@@ -719,9 +982,33 @@ figma.ui.onmessage = async message => {
     }
 
     if (message.type === "save-catalog") {
+      const validation = validateCatalog(message.catalog);
+      if (!validation.valid) {
+        figma.ui.postMessage({ type: "validation", payload: { errors: validation.errors, warnings: [] } });
+        return;
+      }
       await figma.clientStorage.setAsync("unityCatalog", message.catalog);
       figma.ui.postMessage({ type: "catalog", payload: message.catalog });
       figma.notify("FigmaGamedev: Unity Catalog импортирован");
+      await postSelection();
+      return;
+    }
+
+    if (message.type === "save-bridge-token") {
+      await figma.clientStorage.setAsync("bridgeToken", String(message.token || "").trim());
+      figma.ui.postMessage({ type: "bridge-settings", payload: { token: String(message.token || "").trim() } });
+      return;
+    }
+
+    if (message.type === "save-publish-receipt") {
+      await figma.clientStorage.setAsync("lastPublishReceipt", message.receipt || null);
+      return;
+    }
+
+    if (message.type === "repeat-last-export") {
+      const payload = await figma.clientStorage.getAsync("lastExportPackage");
+      if (!payload) throw new Error("Последний экспортированный пакет не найден.");
+      figma.ui.postMessage({ type: "export-ready", payload });
       return;
     }
 
@@ -742,36 +1029,64 @@ figma.ui.onmessage = async message => {
       }
 
       const catalog = await figma.clientStorage.getAsync("unityCatalog");
+      const document = await serializeNode(node, catalog);
+      const report = buildPackageReport(node, annotation, document, catalog);
+      figma.ui.postMessage({ type: "package-report", payload: report });
+      if (!report.canPublish) {
+        figma.ui.postMessage({
+          type: "validation",
+          payload: {
+            errors: report.entries.filter(entry => entry.severity === "error").map(entry => entry.message),
+            warnings: report.entries.filter(entry => entry.severity === "warning").map(entry => entry.message)
+          }
+        });
+        return;
+      }
+
+      const subtreeIds = collectSubtreeIds(node);
+      const annotations = collectAnnotations().filter(entry => subtreeIds.has(entry.nodeId));
+      const figmaSource = {
+        fileName: figma.root.name,
+        pageName: figma.currentPage.name,
+        rootNodeId: node.id
+      };
+      const unityInspector = await resolveVariables(node, analyzeUnityInspector(node));
+      const packageContent = {
+        figma: figmaSource,
+        entity: annotation,
+        catalogVersion: catalog?.version || null,
+        annotations,
+        document,
+        unityInspector
+      };
+      const fingerprint = fnv1a32(stableStringify(packageContent));
       const payload = {
         schema: "figma-gamedev-ui-package",
         schemaVersion: SCHEMA_VERSION,
+        pluginVersion: PLUGIN_VERSION,
+        packageId: `${annotation.id || node.id}-${fingerprint}`,
+        contentHash: { algorithm: "fnv1a32", value: fingerprint },
         exportedAt: new Date().toISOString(),
-        figma: {
-          fileName: figma.root.name,
-          pageName: figma.currentPage.name,
-          rootNodeId: node.id
-        },
+        figma: figmaSource,
         entity: annotation,
         catalogVersion: catalog?.version || null,
-        annotations: collectAnnotations().filter(entry => {
-          let current = figma.getNodeById(entry.nodeId);
-          while (current) {
-            if (current.id === node.id) return true;
-            current = current.parent;
-          }
-          return false;
-        }),
-        document: serializeNode(node),
-        unityInspector: await resolveVariables(node, analyzeUnityInspector(node))
+        annotations,
+        document,
+        unityInspector,
+        report
       };
 
+      await figma.clientStorage.setAsync("lastExportPackage", payload);
+      figma.ui.postMessage({ type: "last-export-state", payload: { available: true } });
       figma.ui.postMessage({ type: "export-ready", payload });
       figma.notify(`FigmaGamedev: ${node.name} готов к экспорту`);
       return;
     }
 
     if (message.type === "select-node") {
-      const node = figma.getNodeById(message.nodeId);
+      const node = typeof figma.getNodeByIdAsync === "function"
+        ? await figma.getNodeByIdAsync(message.nodeId)
+        : figma.getNodeById(message.nodeId);
       if (node && "visible" in node) {
         figma.currentPage.selection = [node];
         figma.viewport.scrollAndZoomIntoView([node]);
@@ -792,6 +1107,13 @@ if (typeof module !== "undefined" && module.exports) {
     verticalAnchor,
     rectTransformHints,
     analyzeUnityInspector,
-    inspectorCodegenResults
+    inspectorCodegenResults,
+    normalizeLookupName,
+    stableStringify,
+    fnv1a32,
+    findCatalogMapping,
+    resolveUnityBinding,
+    validateCatalog,
+    buildPackageReport
   };
 }

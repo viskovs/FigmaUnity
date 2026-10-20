@@ -36,6 +36,11 @@
     .scan-item { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--figma-color-border); }
     .scan-item button { min-height: 25px; padding: 2px 7px; flex: none; }
     .tag { display: inline-block; padding: 1px 5px; border-radius: 4px; background: var(--figma-color-bg-brand-tertiary); color: var(--figma-color-text-brand); }
+    .binding { margin-top: 7px; padding: 7px 8px; border-left: 3px solid var(--figma-color-border-selected); background: var(--figma-color-bg-secondary); }
+    .report-item { margin-top: 6px; padding: 7px 8px; border-radius: 5px; background: var(--figma-color-bg-secondary); }
+    .report-item.error { border-left: 3px solid var(--figma-color-bg-danger); }
+    .report-item.warning { border-left: 3px solid var(--figma-color-bg-warning); }
+    .report-item code { color: var(--figma-color-text-secondary); font-size: 10px; }
     details { margin-top: 8px; }
     summary { cursor: pointer; color: var(--figma-color-text-secondary); }
     pre { margin: 7px 0 0; padding: 9px; overflow: auto; max-height: 310px; border-radius: 5px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
@@ -51,6 +56,7 @@
     <section>
       <h2>Выбранный объект</h2>
       <div id="selection" class="selection muted">Получение выделения…</div>
+      <div id="bindingStatus" class="binding hidden"></div>
       <details id="inspectorDetails" class="hidden">
         <summary>Unity Inspector Preview</summary>
         <pre id="inspectorPreview"></pre>
@@ -182,11 +188,24 @@
     <section>
       <h2>Публикация</h2>
       <div id="bridgeStatus" class="selection muted" style="margin-bottom:8px">Unity Bridge: проверка…</div>
+      <details>
+        <summary>Подключение к Unity</summary>
+        <label for="bridgeToken">Session token из Unity</label>
+        <input id="bridgeToken" type="password" autocomplete="off" placeholder="Tools → FigmaGamedev → Copy Bridge Token">
+        <button id="connectBridge" style="width:100%; margin-top:7px">Сохранить token и подключиться</button>
+        <p class="muted">Token действует до перезапуска или recompilation Unity Editor.</p>
+      </details>
       <div class="row">
         <button id="scan">Сканировать страницу</button>
         <button id="export">Скачать JSON</button>
       </div>
       <button id="publish" class="primary" style="width:100%; margin-top:7px">Отправить выбранный экран в Unity</button>
+      <button id="repeatPublish" disabled style="width:100%; margin-top:7px">Повторить последний пакет</button>
+      <div id="publishReceipt"></div>
+      <details id="reportDetails" class="hidden">
+        <summary id="reportSummary">Отчёт пакета</summary>
+        <div id="packageReport"></div>
+      </details>
       <div id="scanResult"></div>
     </section>
   </main>
@@ -196,6 +215,7 @@
     let selection = null;
     let catalog = null;
     let exportDelivery = "download";
+    let bridgeToken = "";
     const bridgeUrl = "http://localhost:19783";
 
     function send(type, data = {}) {
@@ -310,6 +330,38 @@
       preview.textContent = lines.join("\n").trim();
     }
 
+    function renderBinding(binding, identity) {
+      const target = $("bindingStatus");
+      if (!binding && !identity) {
+        target.classList.add("hidden");
+        target.textContent = "";
+        return;
+      }
+      target.classList.remove("hidden");
+      if (binding) {
+        target.innerHTML = `<strong>Unity binding: ${escapeHtml(binding.prefabId || "не задан prefab")}</strong><div class="muted">${escapeHtml(binding.source || "mapping")} · ${escapeHtml(binding.generationMode || "reuse-prefab")}</div>`;
+      } else {
+        target.innerHTML = `<strong>Компонент пока не связан с Unity</strong><div class="muted">${escapeHtml(identity.componentName || identity.componentSetName || "Figma component")} · key ${escapeHtml(identity.componentKey || identity.componentSetKey || "—")}</div>`;
+      }
+    }
+
+    function renderPackageReport(report) {
+      const details = $("reportDetails");
+      const target = $("packageReport");
+      if (!report) {
+        details.classList.add("hidden");
+        target.innerHTML = "";
+        return;
+      }
+      details.classList.remove("hidden");
+      const summary = report.summary || {};
+      $("reportSummary").textContent = `Отчёт: ${summary.errors || 0} ошибок, ${summary.warnings || 0} предупреждений · ${summary.nodeCount || 0} узлов`;
+      target.innerHTML = (report.entries || []).length
+        ? report.entries.map(entry => `<div class="report-item ${escapeHtml(entry.severity)}"><code>${escapeHtml(entry.code)}</code><div>${escapeHtml(entry.message)}</div><div class="muted">${escapeHtml(entry.nodeName || entry.nodeId || "")}</div></div>`).join("")
+        : '<div class="notice ok">✓ Пакет прошёл preflight без замечаний.</div>';
+      if ((summary.errors || 0) > 0) details.open = true;
+    }
+
     function setOptions(id, entries) {
       $(id).innerHTML = (entries || []).map(entry => {
         const value = typeof entry === "string" ? entry : entry.id;
@@ -330,7 +382,8 @@
       setOptions("safeAreaOptions", value.safeAreaProfiles);
       setOptions("animationOptions", value.animationProfiles);
       const total = (value.prefabs || value.components || []).length;
-      $("catalogStatus").textContent = `Версия ${value.version || "—"}: ${total} prefab, ${(value.screenTemplates || []).length} templates.`;
+      const mappings = (value.componentMappings || value.mappings || []).length;
+      $("catalogStatus").textContent = `Версия ${value.version || "—"}: ${total} prefab, ${(value.screenTemplates || []).length} templates, ${mappings} mappings.`;
     }
 
     function escapeHtml(value) {
@@ -354,13 +407,28 @@
         const response = await fetch(`${bridgeUrl}/health`, { method: "GET" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const info = await response.json();
+        if (!bridgeToken) {
+          target.className = "selection muted";
+          target.innerHTML = `<strong>Unity Bridge найден</strong><span class="muted">${escapeHtml(info.project || "Unity")} · вставьте session token</span>`;
+          $("publish").disabled = true;
+          $("repeatPublish").disabled = true;
+          return;
+        }
+        const statusResponse = await fetch(`${bridgeUrl}/status`, {
+          method: "GET",
+          headers: { "X-FigmaGamedev-Token": bridgeToken }
+        });
+        if (!statusResponse.ok) throw new Error(statusResponse.status === 401 ? "Неверный или устаревший token" : `HTTP ${statusResponse.status}`);
+        const status = await statusResponse.json();
         target.className = "selection";
-        target.innerHTML = `<strong>Unity Bridge подключён</strong><span class="muted">${escapeHtml(info.project || "Unity")} · ${escapeHtml(info.version || "")}</span>`;
+        target.innerHTML = `<strong>Unity Bridge подключён</strong><span class="muted">${escapeHtml(info.project || "Unity")} · ${escapeHtml(info.version || "")} · ${escapeHtml(status.lastPackageId ? `last ${status.lastPackageId}` : "пакетов ещё нет")}</span>`;
         $("publish").disabled = false;
+        $("repeatPublish").disabled = !$("repeatPublish").dataset.available;
       } catch (error) {
         target.className = "selection muted";
-        target.innerHTML = "Unity Bridge не найден на localhost:19783";
+        target.innerHTML = `Unity Bridge: ${escapeHtml(error.message || "не найден на localhost:19783")}`;
         $("publish").disabled = true;
+        $("repeatPublish").disabled = true;
       }
     }
 
@@ -368,13 +436,20 @@
       try {
         const response = await fetch(`${bridgeUrl}/publish`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-FigmaGamedev-Token": bridgeToken
+          },
           body: JSON.stringify(payload)
         });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
         renderValidation({ warnings: [], errors: [] });
-        $("validation").textContent = `✓ Отправлено в Unity\n${result.file || ""}`;
+        $("validation").textContent = `✓ Unity приняла пакет${result.duplicate ? " (без дубликата)" : ""}\n${result.file || ""}`;
+        $("publishReceipt").className = "notice ok";
+        $("publishReceipt").textContent = `Receipt: ${result.receiptId || "—"}\nPackage: ${result.packageId || payload.packageId || "—"}`;
+        send("save-publish-receipt", { receipt: result });
+        checkBridge();
       } catch (error) {
         renderValidation({ errors: [`Не удалось отправить в Unity: ${error.message}`] });
         checkBridge();
@@ -389,6 +464,12 @@
     $("scan").onclick = () => send("scan-page");
     $("export").onclick = () => { exportDelivery = "download"; send("export-selection"); };
     $("publish").onclick = () => { exportDelivery = "bridge"; send("export-selection"); };
+    $("repeatPublish").onclick = () => { exportDelivery = "bridge"; send("repeat-last-export"); };
+    $("connectBridge").onclick = () => {
+      bridgeToken = $("bridgeToken").value.trim();
+      send("save-bridge-token", { token: bridgeToken });
+      checkBridge();
+    };
     $("catalogFile").onchange = async event => {
       const file = event.target.files[0];
       if (!file) return;
@@ -404,23 +485,36 @@
       if (!message) return;
       if (message.type === "selection") {
         selection = message.payload;
+        renderPackageReport(null);
         if (!selection.ok) {
           $("selection").textContent = selection.message;
           $("selection").classList.add("muted");
           $("editor").classList.add("hidden");
           renderInspector(null);
+          renderBinding(null, null);
         } else {
           $("selection").innerHTML = `<strong>${escapeHtml(selection.node.name)}</strong><span class="muted">${escapeHtml(selection.node.type)} · ${Math.round(selection.node.width || 0)}×${Math.round(selection.node.height || 0)} · ${escapeHtml(selection.node.id)}</span>`;
           $("selection").classList.remove("muted");
           $("editor").classList.remove("hidden");
           renderInspector(selection.unityInspector);
+          renderBinding(selection.resolvedBinding, selection.componentIdentity);
           fillForm(selection.annotation || {});
           $("validation").className = "";
           $("validation").textContent = "";
         }
       }
       if (message.type === "catalog") applyCatalog(message.payload);
+      if (message.type === "bridge-settings") {
+        bridgeToken = message.payload?.token || "";
+        $("bridgeToken").value = bridgeToken;
+        checkBridge();
+      }
+      if (message.type === "last-export-state") {
+        $("repeatPublish").dataset.available = message.payload?.available ? "true" : "";
+        $("repeatPublish").disabled = !message.payload?.available || $("publish").disabled;
+      }
       if (message.type === "validation") renderValidation(message.payload);
+      if (message.type === "package-report") renderPackageReport(message.payload);
       if (message.type === "export-ready") {
         if (exportDelivery === "bridge") publishToUnity(message.payload);
         else downloadJson(message.payload);

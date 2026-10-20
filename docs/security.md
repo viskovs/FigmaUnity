@@ -9,9 +9,13 @@ Figma package считается недоверенным вводом до пр
 
 - listener привязан к `localhost:19783`;
 - запрос дополнительно проверяется через `IPAddress.IsLoopback`;
-- разрешены только `/health`, `/publish` и CORS preflight;
+- разрешены только `/health`, `/status`, `/publish` и CORS preflight;
+- `/status` и `/publish` требуют случайный 256-bit session token;
+- token сравнивается без раннего выхода и меняется после Editor domain reload;
 - максимальный размер запроса — 20 MB;
+- принимается только package schema v2 с package ID и fingerprint;
 - entity ID очищается перед использованием в имени файла;
+- запись выполняется через временный файл и atomic move;
 - входящие данные не интерпретируются как C# и не выполняются;
 - Unity `Assets` не изменяется.
 
@@ -35,6 +39,10 @@ http://127.0.0.1:19783/
 - Unity credentials;
 - внутренние API keys;
 - пользовательские абсолютные пути.
+
+Bridge token является локальным session credential. Не добавляйте его в каталог,
+Figma Shared Plugin Data, экспортируемый пакет, скриншоты или Git. В Figma он
+хранится только в локальном `clientStorage` development plugin.
 
 ## Будущий compiler
 

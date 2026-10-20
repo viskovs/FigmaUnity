@@ -21,11 +21,14 @@
 
 ### Unity Catalog
 
-Определяет доступные templates, prefabs, variants, slots и behavior profiles.
+Определяет доступные templates, prefabs, variants, slots, behavior profiles и
+stable Figma component key → Unity prefab mappings. Явная node-аннотация имеет
+приоритет над mapping; key имеет приоритет над fallback по имени.
 
 ### Transport
 
-MVP поддерживает JSON download и localhost HTTP bridge.
+MVP поддерживает JSON download и localhost HTTP bridge с session token, versioned
+schema, content fingerprint, idempotent inbox и delivery receipt.
 
 ### Normalizer — planned
 

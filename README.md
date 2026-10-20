@@ -18,7 +18,10 @@ Figma, а Unity и AI-инструменты получают не только 
   `Repeated List`, `Preserve Wrapper` и `Ignore`;
 - параметры Animation Group: профиль, выбор целей, порядок и задержка;
 - импорт Unity Catalog из JSON;
+- автоматическое разрешение Figma Component/Instance в Unity prefab через
+  стабильный component key или нормализованное имя;
 - валидация выбранного узла;
+- preflight-отчёт по всему экрану: mapping, потери конвертации и mobile budgets;
 - сканирование размеченных узлов текущей страницы;
 - экспорт выбранной сущности и Auto Layout-дерева в JSON;
 - Unity Inspector Preview для выбранного слоя;
@@ -27,7 +30,8 @@ Figma, а Unity и AI-инструменты получают не только 
   ContentSizeFitter и LayoutElement;
 - совместимый TMP Rich Text и исходные mixed-style segments;
 - Figma Source, resolved variables и явные warnings для неоднозначных свойств;
-- отправка пакета в Unity через локальный bridge на `localhost:19783`.
+- versioned package с fingerprint и повторяемым package ID;
+- защищённая токеном отправка в Unity, idempotent receipt и повтор пакета.
 
 ## Общая схема
 
@@ -90,12 +94,15 @@ Template: unity.screen.lobby
 2. Выберите **+ → Add package from disk…**.
 3. Укажите `UnityPackage/package.json`.
 4. После компиляции bridge запустится автоматически.
-5. Перезапустите Figma-плагин.
-6. Нажмите **Отправить выбранный экран в Unity**.
+5. Выполните **Tools → FigmaGamedev → Copy Bridge Token**.
+6. В Figma раскройте **Публикация → Подключение к Unity**, вставьте token и
+   нажмите **Сохранить token и подключиться**.
+7. Нажмите **Отправить выбранный экран в Unity**.
 
 Входящие пакеты сохраняются в
-`<Unity project>/Library/FigmaGamedev/Inbox/`. Bridge не изменяет `Assets` и не
-создаёт prefab автоматически.
+`<Unity project>/Library/FigmaGamedev/Inbox/`, а receipts — в соседнюю папку
+`Receipts`. Одинаковый пакет второй раз не дублируется. Bridge не изменяет
+`Assets` и не создаёт prefab автоматически.
 
 ## Документация
 

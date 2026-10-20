@@ -12,6 +12,7 @@ Unity Catalog сообщает Figma-плагину, какие сущности
   "features": [],
   "screenTemplates": [],
   "prefabs": [],
+  "componentMappings": [],
   "safeAreaProfiles": [],
   "animationProfiles": []
 }
@@ -60,6 +61,37 @@ Unity Catalog сообщает Figma-плагину, какие сущности
 - allowed nested prefabs;
 - preview image;
 - mobile cost metadata.
+
+## Component mappings
+
+Mapping позволяет всем instances одного Figma-компонента автоматически
+переиспользовать production-prefab, даже если на каждом instance нет аннотации:
+
+```json
+{
+  "id": "mapping.product-card",
+  "figmaComponentKey": "abcdef123456",
+  "figmaComponentName": "Product Card",
+  "prefabId": "unity.ui.product-card",
+  "generationMode": "reuse-prefab",
+  "propertyBindings": [
+    {
+      "figmaProperty": "Title",
+      "unityProperty": "titleText"
+    }
+  ]
+}
+```
+
+Порядок разрешения:
+
+1. явная Component-аннотация с `basePrefabId` на узле;
+2. `figmaComponentKey` или `figmaComponentSetKey`;
+3. `figmaComponentName` с игнорированием регистра, пробелов и пунктуации;
+4. узел остаётся visual/unmapped и попадает в preflight report.
+
+Key — основной production-вариант. Имя оставлено как удобный fallback и для
+первичной настройки, но переименование компонента в Figma может его сломать.
 
 ## Safe Area profiles
 

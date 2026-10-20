@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -13,12 +14,17 @@ namespace HyperHug.FigmaGamedev.Editor
     public static class FigmaGamedevServer
     {
         private const int Port = 19783;
+        private const string BridgeVersion = "0.3.0";
+        private const string TokenHeader = "X-FigmaGamedev-Token";
         private const string MenuRoot = "Tools/FigmaGamedev/";
         private static readonly object FileLock = new();
         private static HttpListener _listener;
         private static Thread _thread;
         private static volatile bool _running;
         private static string _projectName = "Unity";
+        private static string _sessionToken;
+        private static string _lastPackageId;
+        private static string _lastReceiptId;
 
         public static bool IsRunning => _running;
         public static string InboxPath => Path.GetFullPath(Path.Combine("Library", "FigmaGamedev", "Inbox"));
@@ -40,6 +46,9 @@ namespace HyperHug.FigmaGamedev.Editor
             {
                 _projectName = Application.productName;
                 Directory.CreateDirectory(InboxPath);
+                Directory.CreateDirectory(ReceiptsPath);
+                _sessionToken ??= CreateSessionToken();
+                LoadLastReceipt();
                 _listener = new HttpListener();
                 _listener.Prefixes.Add($"http://localhost:{Port}/");
                 _listener.Start();
@@ -75,6 +84,18 @@ namespace HyperHug.FigmaGamedev.Editor
             Directory.CreateDirectory(InboxPath);
             EditorUtility.RevealInFinder(InboxPath);
         }
+
+        [MenuItem(MenuRoot + "Copy Bridge Token")]
+        public static void CopyBridgeToken()
+        {
+            _sessionToken ??= CreateSessionToken();
+            EditorGUIUtility.systemCopyBuffer = _sessionToken;
+            Debug.Log("[FigmaGamedev] Session token copied. Paste it into the FigmaGamedev plugin. " +
+                      "It changes after an Editor domain reload or restart.");
+        }
+
+        private static string ReceiptsPath =>
+            Path.GetFullPath(Path.Combine("Library", "FigmaGamedev", "Receipts"));
 
         private static void ListenLoop()
         {
@@ -114,7 +135,22 @@ namespace HyperHug.FigmaGamedev.Editor
             {
                 var project = EscapeJson(_projectName);
                 RespondJson(context.Response, 200,
-                    $"{{\"ok\":true,\"project\":\"{project}\",\"version\":\"0.1.0\"}}");
+                    $"{{\"ok\":true,\"project\":\"{project}\",\"version\":\"{BridgeVersion}\",\"requiresToken\":true}}");
+                return;
+            }
+
+            if (!IsAuthorized(context.Request))
+            {
+                RespondJson(context.Response, 401,
+                    "{\"ok\":false,\"error\":\"Invalid or expired bridge token\"}");
+                return;
+            }
+
+            if (context.Request.HttpMethod == "GET" && path == "/status")
+            {
+                RespondJson(context.Response, 200,
+                    $"{{\"ok\":true,\"lastPackageId\":{JsonStringOrNull(_lastPackageId)}," +
+                    $"\"lastReceiptId\":{JsonStringOrNull(_lastReceiptId)}}}");
                 return;
             }
 
@@ -146,16 +182,43 @@ namespace HyperHug.FigmaGamedev.Editor
                 return;
             }
 
-            var id = ExtractEntityId(json);
-            var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmssfff");
-            var fileName = $"{id}-{timestamp}.figma-gamedev.json";
-            var path = Path.Combine(InboxPath, fileName);
-            lock (FileLock)
-                File.WriteAllText(path, json, new UTF8Encoding(false));
+            var schema = ExtractJsonString(json, "schema");
+            var schemaVersion = ExtractJsonInt(json, "schemaVersion");
+            var packageId = ExtractJsonString(json, "packageId");
+            var contentHash = ExtractContentHash(json);
+            if (!string.Equals(schema, "figma-gamedev-ui-package", StringComparison.Ordinal) ||
+                schemaVersion != 2 || string.IsNullOrWhiteSpace(packageId) || string.IsNullOrWhiteSpace(contentHash))
+            {
+                RespondJson(context.Response, 422,
+                    "{\"ok\":false,\"error\":\"Unsupported or incomplete package schema\"}");
+                return;
+            }
 
-            Debug.Log($"[FigmaGamedev] Received {fileName}");
-            RespondJson(context.Response, 200,
-                $"{{\"ok\":true,\"file\":\"{EscapeJson(path)}\"}}");
+            var id = ExtractEntityId(json);
+            var safeHash = SanitizeFilePart(contentHash, 32, "content");
+            var fileName = $"{id}-{safeHash}.figma-gamedev.json";
+            var path = Path.Combine(InboxPath, fileName);
+            bool duplicate;
+            lock (FileLock)
+            {
+                duplicate = File.Exists(path);
+                if (!duplicate) WriteAtomically(path, json);
+            }
+
+            var receivedAt = DateTime.UtcNow.ToString("O");
+            var receiptId = $"receipt-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{safeHash}";
+            var receipt =
+                $"{{\"ok\":true,\"receiptId\":\"{EscapeJson(receiptId)}\"," +
+                $"\"packageId\":\"{EscapeJson(packageId)}\",\"receivedAt\":\"{receivedAt}\"," +
+                $"\"duplicate\":{duplicate.ToString().ToLowerInvariant()},\"file\":\"{EscapeJson(path)}\"}}";
+            var receiptPath = Path.Combine(ReceiptsPath, $"{SanitizeFilePart(receiptId, 120, "receipt")}.json");
+            lock (FileLock) WriteAtomically(receiptPath, receipt);
+
+            _lastPackageId = packageId;
+            _lastReceiptId = receiptId;
+
+            Debug.Log($"[FigmaGamedev] {(duplicate ? "Acknowledged existing" : "Received")} {fileName}");
+            RespondJson(context.Response, 200, receipt);
         }
 
         private static string ExtractEntityId(string json)
@@ -164,6 +227,87 @@ namespace HyperHug.FigmaGamedev.Editor
             var id = match.Success ? match.Groups[1].Value : "screen";
             id = Regex.Replace(id, "[^a-zA-Z0-9._-]+", "-").Trim('-');
             return string.IsNullOrEmpty(id) ? "screen" : id.Substring(0, Math.Min(id.Length, 80));
+        }
+
+        private static string ExtractJsonString(string json, string property)
+        {
+            var pattern = $"\\\"{Regex.Escape(property)}\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"";
+            var match = Regex.Match(json, pattern);
+            return match.Success ? match.Groups[1].Value : null;
+        }
+
+        private static int ExtractJsonInt(string json, string property)
+        {
+            var pattern = $"\\\"{Regex.Escape(property)}\\\"\\s*:\\s*(\\d+)";
+            var match = Regex.Match(json, pattern);
+            return match.Success && int.TryParse(match.Groups[1].Value, out var value) ? value : -1;
+        }
+
+        private static string ExtractContentHash(string json)
+        {
+            var match = Regex.Match(json,
+                "\\\"contentHash\\\"\\s*:\\s*\\{[^{}]*\\\"value\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+            return match.Success ? match.Groups[1].Value : null;
+        }
+
+        private static string SanitizeFilePart(string value, int maxLength, string fallback)
+        {
+            var result = Regex.Replace(value ?? string.Empty, "[^a-zA-Z0-9._-]+", "-").Trim('-');
+            if (string.IsNullOrEmpty(result)) result = fallback;
+            return result.Substring(0, Math.Min(result.Length, maxLength));
+        }
+
+        private static void WriteAtomically(string path, string contents)
+        {
+            var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+            try
+            {
+                File.WriteAllText(temporaryPath, contents, new UTF8Encoding(false));
+                if (File.Exists(path)) File.Delete(path);
+                File.Move(temporaryPath, path);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            }
+        }
+
+        private static string CreateSessionToken()
+        {
+            var bytes = new byte[32];
+            using (var generator = RandomNumberGenerator.Create()) generator.GetBytes(bytes);
+            return Convert.ToBase64String(bytes);
+        }
+
+        private static bool IsAuthorized(HttpListenerRequest request)
+        {
+            var provided = request.Headers[TokenHeader];
+            if (string.IsNullOrEmpty(provided) || string.IsNullOrEmpty(_sessionToken)) return false;
+            var expectedBytes = Encoding.UTF8.GetBytes(_sessionToken);
+            var providedBytes = Encoding.UTF8.GetBytes(provided);
+            if (expectedBytes.Length != providedBytes.Length) return false;
+            var difference = 0;
+            for (var index = 0; index < expectedBytes.Length; index++)
+                difference |= expectedBytes[index] ^ providedBytes[index];
+            return difference == 0;
+        }
+
+        private static void LoadLastReceipt()
+        {
+            try
+            {
+                var directory = new DirectoryInfo(ReceiptsPath);
+                var files = directory.GetFiles("*.json");
+                if (files.Length == 0) return;
+                Array.Sort(files, (left, right) => right.LastWriteTimeUtc.CompareTo(left.LastWriteTimeUtc));
+                var json = File.ReadAllText(files[0].FullName);
+                _lastPackageId = ExtractJsonString(json, "packageId");
+                _lastReceiptId = ExtractJsonString(json, "receiptId");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"[FigmaGamedev] Could not read last receipt: {exception.Message}");
+            }
         }
 
         private static bool IsLocalRequest(HttpListenerRequest request)
@@ -176,7 +320,7 @@ namespace HyperHug.FigmaGamedev.Editor
         {
             response.Headers["Access-Control-Allow-Origin"] = "*";
             response.Headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
-            response.Headers["Access-Control-Allow-Headers"] = "Content-Type";
+            response.Headers["Access-Control-Allow-Headers"] = $"Content-Type, {TokenHeader}";
             response.Headers["Access-Control-Allow-Private-Network"] = "true";
         }
 
@@ -198,5 +342,8 @@ namespace HyperHug.FigmaGamedev.Editor
 
         private static string EscapeJson(string value) =>
             (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"");
+
+        private static string JsonStringOrNull(string value) =>
+            string.IsNullOrEmpty(value) ? "null" : $"\"{EscapeJson(value)}\"";
     }
 }

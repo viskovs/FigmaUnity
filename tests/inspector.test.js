@@ -23,7 +23,14 @@ const {
   inspectorCodegenResults,
   horizontalAnchor,
   verticalAnchor,
-  srgbToLinear
+  srgbToLinear,
+  normalizeLookupName,
+  stableStringify,
+  fnv1a32,
+  findCatalogMapping,
+  resolveUnityBinding,
+  validateCatalog,
+  buildPackageReport
 } = require("../code.js");
 
 function node(overrides = {}) {
@@ -248,4 +255,64 @@ test("emits grouped Dev Mode codegen with source, variables and warnings", () =>
   const source = results.find(value => value.title === "Figma Source");
   assert.match(source.code, /GRADIENT_LINEAR/);
   assert.ok(results.some(value => value.title === "Warnings"));
+});
+
+test("resolves catalog mappings by stable component key before normalized name", () => {
+  const catalog = {
+    componentMappings: [
+      { id: "name", figmaComponentName: "Product Card", prefabId: "unity.by-name" },
+      { id: "key", figmaComponentKey: "figma-key-42", prefabId: "unity.by-key" }
+    ]
+  };
+  const match = findCatalogMapping("Product Card", { componentKey: "figma-key-42" }, catalog);
+  assert.equal(match.matchedBy, "component-key");
+  assert.equal(match.mapping.prefabId, "unity.by-key");
+  assert.equal(normalizeLookupName("Product-card / Featured"), "productcardfeatured");
+});
+
+test("explicit annotation wins over a catalog mapping", () => {
+  const binding = resolveUnityBinding(
+    "Product Card",
+    { kind: "component", basePrefabId: "unity.explicit", generationMode: "prefab-variant" },
+    { componentKey: "figma-key-42" },
+    { componentMappings: [{ figmaComponentKey: "figma-key-42", prefabId: "unity.mapped" }] }
+  );
+  assert.equal(binding.source, "annotation");
+  assert.equal(binding.prefabId, "unity.explicit");
+  assert.equal(binding.generationMode, "prefab-variant");
+});
+
+test("stable package fingerprint ignores object key insertion order", () => {
+  const left = stableStringify({ screen: { id: "shop", nodes: [1, 2] }, version: 2 });
+  const right = stableStringify({ version: 2, screen: { nodes: [1, 2], id: "shop" } });
+  assert.equal(left, right);
+  assert.equal(fnv1a32(left), fnv1a32(right));
+});
+
+test("catalog validation rejects the wrong schema and malformed mappings", () => {
+  const validation = validateCatalog({ version: "1", componentMappings: {} });
+  assert.equal(validation.valid, false);
+  assert.ok(validation.errors.some(value => value.includes("schema")));
+  assert.ok(validation.errors.some(value => value.includes("componentMappings")));
+});
+
+test("package report blocks unknown mapped prefabs and reports unmapped instances", () => {
+  const root = node({ type: "FRAME", name: "Shop" });
+  const annotation = { kind: "screen", id: "shop.main", featureId: "shop", unityName: "ShopScreen" };
+  const document = {
+    id: root.id,
+    name: root.name,
+    type: root.type,
+    annotation,
+    unityInspector: { components: [], warnings: [] },
+    children: [
+      { id: "2:1", name: "Known", type: "INSTANCE", resolvedBinding: { prefabId: "unity.unknown" }, unityInspector: { components: [], warnings: [] }, children: [] },
+      { id: "2:2", name: "Loose", type: "INSTANCE", resolvedBinding: null, unityInspector: { components: [], warnings: [] }, children: [] }
+    ]
+  };
+  const catalog = { screenTemplates: [], prefabs: [], safeAreaProfiles: [], animationProfiles: [] };
+  const report = buildPackageReport(root, annotation, document, catalog);
+  assert.equal(report.canPublish, false);
+  assert.ok(report.entries.some(entry => entry.code === "MAPPED_PREFAB_UNKNOWN"));
+  assert.ok(report.entries.some(entry => entry.code === "COMPONENT_UNMAPPED"));
 });

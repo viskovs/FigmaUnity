@@ -22,7 +22,7 @@ component и выполните scan текущей страницы.
 - проверьте валидность JSON;
 - сравните структуру с example catalog;
 - убедитесь, что коллекции называются `features`, `screenTemplates`, `prefabs`,
-  `safeAreaProfiles`, `animationProfiles`;
+  `componentMappings`, `safeAreaProfiles`, `animationProfiles`;
 - импортируйте каталог повторно на этом компьютере.
 
 ## Unity Bridge не найден
@@ -32,6 +32,12 @@ component и выполните scan текущей страницы.
 3. Выполните **Tools → FigmaGamedev → Start Local Bridge**.
 4. Убедитесь, что порт `19783` не занят.
 5. Перезапустите Figma-плагин после изменения manifest permissions.
+
+## Bridge найден, но отправка заблокирована
+
+Скопируйте новый token через **Tools → FigmaGamedev → Copy Bridge Token** и
+вставьте его в секцию подключения плагина. Token меняется после перезапуска Unity
+и domain reload при перекомпиляции Editor scripts.
 
 ## Пакет отправлен, но prefab не появился
 

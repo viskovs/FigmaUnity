@@ -25,15 +25,38 @@ GET /health
 {
   "ok": true,
   "project": "ExampleGame",
-  "version": "0.1.0"
+  "version": "0.3.0",
+  "requiresToken": true
 }
 ```
+
+### Session token
+
+В Unity выполните **Tools → FigmaGamedev → Copy Bridge Token**, затем вставьте
+значение в секцию **Публикация → Подключение к Unity** в Figma. Token живёт одну
+Editor-сессию и меняется после domain reload или перезапуска Unity.
+
+Все endpoint, кроме `/health` и `OPTIONS`, требуют заголовок:
+
+```http
+X-FigmaGamedev-Token: <session-token>
+```
+
+### Статус
+
+```http
+GET /status
+X-FigmaGamedev-Token: <session-token>
+```
+
+Возвращает `lastPackageId` и `lastReceiptId`.
 
 ### Публикация
 
 ```http
 POST /publish
 Content-Type: application/json
+X-FigmaGamedev-Token: <session-token>
 ```
 
 Тело — полный `figma-gamedev-ui-package`.
@@ -43,7 +66,10 @@ Content-Type: application/json
 ```json
 {
   "ok": true,
-  "file": "/project/Library/FigmaGamedev/Inbox/screen-....json"
+  "receiptId": "receipt-20261021-...",
+  "packageId": "shop.main-12ab34cd",
+  "duplicate": false,
+  "file": "/project/Library/FigmaGamedev/Inbox/shop.main-12ab34cd.figma-gamedev.json"
 }
 ```
 
@@ -53,8 +79,9 @@ Content-Type: application/json
 Library/FigmaGamedev/Inbox/
 ```
 
-Имена включают entity ID и UTC timestamp. Повторная публикация не перезаписывает
-предыдущий файл.
+Имена включают entity ID и content fingerprint. Повторная публикация идентичного
+пакета подтверждается с `duplicate: true` и не создаёт второй inbox-файл.
+Каждый приём также создаёт receipt в `Library/FigmaGamedev/Receipts/`.
 
 ## Почему используется Library
 
@@ -68,11 +95,11 @@ Library/FigmaGamedev/Inbox/
 - один фиксированный порт;
 - только JSON, без PNG/SVG;
 - нет списка проектов при нескольких Unity Editor;
-- нет очереди и статуса обработки;
+- receipt подтверждает доставку, но не компиляцию prefab;
 - нет подтверждения, что prefab собран;
 - inbox не очищается автоматически.
 
 ## Будущее расширение
 
-Планируется протокол discovery на диапазоне портов, project ID, package hash,
-version acknowledgement, progress status и безопасная передача asset blobs.
+Планируется протокол discovery на диапазоне портов, project ID, progress status
+compiler и безопасная передача asset blobs.

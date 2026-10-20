@@ -1,6 +1,6 @@
 {
   "schema": "figma-gamedev-ui-catalog",
-  "version": "0.1.0-example",
+  "version": "0.3.0-example",
   "features": [
     {
       "id": "lootbox-shop",
@@ -28,6 +28,31 @@
     {
       "id": "unity.ui.button.primary",
       "displayName": "Primary Button"
+    }
+  ],
+  "componentMappings": [
+    {
+      "id": "mapping.product-card",
+      "figmaComponentKey": "replace-with-key-from-figma",
+      "figmaComponentName": "Product Card",
+      "prefabId": "unity.ui.product-card",
+      "generationMode": "reuse-prefab",
+      "propertyBindings": [
+        {
+          "figmaProperty": "Title",
+          "unityProperty": "titleText"
+        },
+        {
+          "figmaProperty": "Featured",
+          "unityProperty": "featured"
+        }
+      ]
+    },
+    {
+      "id": "mapping.primary-button",
+      "figmaComponentName": "Button/Primary",
+      "prefabId": "unity.ui.button.primary",
+      "generationMode": "reuse-prefab"
     }
   ],
   "safeAreaProfiles": [

@@ -52,7 +52,10 @@ Warnings. Эти же hints попадут в JSON, когда дизайнер 
 2. Нажмите **+ → Add package from disk…**.
 3. Выберите `UnityPackage/package.json`.
 4. Дождитесь компиляции.
-5. Проверьте Console:
+5. Выполните **Tools → FigmaGamedev → Copy Bridge Token**.
+6. В Figma раскройте **Публикация → Подключение к Unity**, вставьте token и
+   нажмите **Сохранить token и подключиться**.
+7. Проверьте Console:
 
    ```text
    [FigmaGamedev] Listening on http://localhost:19783/
@@ -62,7 +65,8 @@ Warnings. Эти же hints попадут в JSON, когда дизайнер 
 
 - `Start Local Bridge`;
 - `Stop Local Bridge`;
-- `Open Inbox`.
+- `Open Inbox`;
+- `Copy Bridge Token`.
 
 ## Обновление development-версии
 
@@ -77,7 +81,8 @@ Warnings. Эти же hints попадут в JSON, когда дизайнер 
 выполнить **Import plugin from manifest…**: Figma должна перечитать Dev Mode
 capabilities и список codegen languages.
 
-После изменения Unity Package дождитесь domain reload и повторной компиляции.
+После изменения Unity Package дождитесь domain reload и повторной компиляции,
+затем скопируйте новый Bridge Token.
 
 ## Удаление
 

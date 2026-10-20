@@ -2,21 +2,31 @@
 
 ## [Unreleased]
 
-### Added
-
-- Unity Inspector Preview в основном интерфейсе;
-- Dev Mode codegen `Unity uGUI Inspector`;
-- RectTransform, Layout, Image/RawImage, TMP и CanvasGroup hints;
-- resolved Figma Variables, Figma Source и Warnings в AI export;
-- автоматические тесты layout analyzer.
-
 ### Planned
 
 - Unity Catalog exporter;
 - semantic tree normalizer;
 - Unity prefab compiler;
 - asset export;
-- AI skill и mobile validation.
+- AI skill и mobile render validation.
+
+## [0.3.0] — 2026-10-21
+
+### Added
+
+- стабильная идентификация Figma Component/Instance через component key;
+- `componentMappings` с приоритетом key над нормализованным именем;
+- preview разрешённого Unity prefab прямо в Figma-плагине;
+- package preflight report с conversion, mapping и mobile-budget warnings;
+- package schema v2, стабильный content fingerprint и package ID;
+- session token для локального Unity Bridge;
+- idempotent publish, receipt и endpoint статуса;
+- повторная отправка последнего сгенерированного пакета;
+- Unity Inspector Preview в основном интерфейсе;
+- Dev Mode codegen `Unity uGUI Inspector`;
+- RectTransform, Layout, Image/RawImage, TMP и CanvasGroup hints;
+- resolved Figma Variables, Figma Source и Warnings в AI export;
+- автоматические тесты layout analyzer.
 
 ## [0.1.0] — 2026-08-16
 
